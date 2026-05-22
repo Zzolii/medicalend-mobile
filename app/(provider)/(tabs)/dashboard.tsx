@@ -1,13 +1,17 @@
+// Path: medicalend-mobile/app/(provider)/(tabs)/dashboard.tsx
+
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   View,
 } from "react-native";
 
+import { api } from "../../../_lib/api";
 import {
   fetchProviderDashboard,
   type ProviderDashboard,
@@ -25,36 +29,145 @@ const COLORS = {
   muted: "#64748B",
   error: "#EF4444",
   warning: "#F59E0B",
+  success: "#16A34A",
 };
 
-function fmt(iso: string) {
+type TodayAppointment = {
+  id: number;
+  patient_id?: number | null;
+  provider_id?: number | null;
+  doctor_id?: number | null;
+  episode_id?: number | null;
+  clinic_id?: number | null;
+  start_time?: string;
+  end_time?: string | null;
+  status?: string;
+  notes?: string | null;
+  patient_name?: string | null;
+  provider_name?: string | null;
+  doctor_name?: string | null;
+};
+
+function fmt(iso?: string | null) {
+  if (!iso) return "Nespecificat";
+
   try {
-    return new Date(iso).toLocaleString("ro-RO");
+    return new Date(iso).toLocaleString("ro-RO", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
   } catch {
     return iso;
   }
 }
 
+function fmtTime(iso?: string | null) {
+  if (!iso) return null;
+
+  try {
+    return new Date(iso).toLocaleTimeString("ro-RO", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function appointmentTimeRange(item: TodayAppointment) {
+  const start = fmt(item.start_time);
+  const end = fmtTime(item.end_time);
+
+  if (!end) return start;
+  return `${start} - ${end}`;
+}
+
+function statusLabel(status?: string | null) {
+  if (!status) return "Necunoscut";
+  if (status === "scheduled") return "Programată";
+  if (status === "in_progress") return "În desfășurare";
+  if (status === "completed") return "Finalizată";
+  if (status === "canceled") return "Anulată";
+  if (status === "pending") return "În așteptare";
+  return status;
+}
+
+function statusColor(status?: string | null) {
+  if (status === "scheduled" || status === "completed") return COLORS.success;
+  if (status === "in_progress" || status === "pending") return COLORS.warning;
+  if (status === "canceled") return COLORS.muted;
+  return COLORS.primary;
+}
+
+function appointmentTitle(item: TodayAppointment) {
+  if (item.patient_name?.trim()) return item.patient_name.trim();
+
+  if (typeof item.patient_id === "number") {
+    return `Pacient #${item.patient_id}`;
+  }
+
+  return "Pacient nespecificat";
+}
+
+function appointmentSubtitle(item: TodayAppointment) {
+  const notes = item.notes?.trim();
+  if (notes) return notes;
+
+  return "Consultație medicală";
+}
+
+function appointmentProviderLine(item: TodayAppointment) {
+  const doctor = item.doctor_name?.trim();
+  const provider = item.provider_name?.trim();
+
+  if (doctor && provider) return `${doctor} • ${provider}`;
+  if (doctor) return doctor;
+  if (provider) return provider;
+
+  return "Clinică / specialist";
+}
+
 function roleSubtitle(roleCtx: RoleContext | null) {
   if (!roleCtx) return "Se încarcă rolul utilizatorului.";
 
-  if (roleCtx.isClinicAdmin)
+  if (roleCtx.isClinicAdmin) {
     return "Vizualizare organizațională a activității clinicii.";
-  if (roleCtx.isDoctor)
-    return "Programările și referral-urile relevante pentru activitatea medicală.";
-  if (roleCtx.isAssistant)
-    return "Activități și programări relevante pentru sarcinile alocate.";
-  if (roleCtx.isReception)
-    return "Acces administrativ și orientat pe programări.";
+  }
+
+  if (roleCtx.isDoctor) {
+    return "Programările de astăzi și referral-urile relevante pentru activitatea medicală.";
+  }
+
+  if (roleCtx.isAssistant) {
+    return "Activități, programări și episoade relevante pentru suportul clinic.";
+  }
+
+  if (roleCtx.isReception) {
+    return "Lista operațională a programărilor și pacienților de astăzi.";
+  }
 
   return "Dashboard disponibil pentru contul curent.";
+}
+
+function todayTitle(roleCtx: RoleContext | null) {
+  if (roleCtx?.isDoctor) return "Programările mele de astăzi";
+  return "Programările de astăzi";
+}
+
+async function fetchTodayAppointments() {
+  const response = await api.get<TodayAppointment[]>("/appointments/today");
+  return response.data ?? [];
 }
 
 export default function ProviderDashboardScreen() {
   const [busy, setBusy] = useState(true);
   const [roleBusy, setRoleBusy] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<ProviderDashboard | null>(null);
+  const [todayAppointments, setTodayAppointments] = useState<
+    TodayAppointment[]
+  >([]);
   const [roleCtx, setRoleCtx] = useState<RoleContext | null>(null);
 
   async function load() {
@@ -66,8 +179,20 @@ export default function ProviderDashboardScreen() {
       setRoleCtx(ctx);
       setRoleBusy(false);
 
-      const d = await fetchProviderDashboard();
-      setData(d);
+      const [dashboardData, todayData] = await Promise.all([
+        fetchProviderDashboard(),
+        fetchTodayAppointments().catch(() => null),
+      ]);
+
+      setData(dashboardData);
+
+      if (todayData) {
+        setTodayAppointments(todayData);
+      } else {
+        setTodayAppointments(
+          (dashboardData?.today_appointments ?? []) as TodayAppointment[],
+        );
+      }
     } catch (e: any) {
       const status = e?.response?.status;
       const detail =
@@ -78,6 +203,7 @@ export default function ProviderDashboardScreen() {
       if (String(detail).toLowerCase().includes("provider")) {
         setErr("Acest utilizator nu este asociat unei clinici.");
         setData(null);
+        setTodayAppointments([]);
         return;
       }
 
@@ -94,26 +220,50 @@ export default function ProviderDashboardScreen() {
     }
   }
 
+  async function refresh() {
+    setRefreshing(true);
+
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => {
     load();
   }, []);
 
-  // ✅ FIXED: stable memo values
-  const todayAppointments = useMemo(
-    () => data?.today_appointments ?? [],
-    [data?.today_appointments],
-  );
+  const visibleTodayAppointments = useMemo(() => {
+    return [...todayAppointments].sort((a, b) => {
+      const aTime = a.start_time ? new Date(a.start_time).getTime() : 0;
+      const bTime = b.start_time ? new Date(b.start_time).getTime() : 0;
+      return aTime - bTime;
+    });
+  }, [todayAppointments]);
 
   const pendingReferrals = useMemo(
     () => data?.pending_referrals ?? [],
     [data?.pending_referrals],
   );
 
+  const visiblePatientsToday = useMemo(() => {
+    return new Set(
+      visibleTodayAppointments
+        .map((item) => item.patient_id)
+        .filter((value): value is number => typeof value === "number"),
+    ).size;
+  }, [visibleTodayAppointments]);
+
   function openEpisode(id: number) {
     router.push({
       pathname: "/(provider)/episode/[id]",
       params: { id: String(id) },
     });
+  }
+
+  function openAppointments() {
+    router.push("/(provider)/(tabs)/appointments");
   }
 
   async function logout() {
@@ -143,14 +293,32 @@ export default function ProviderDashboardScreen() {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg, padding: 16 }}>
         <Text style={{ color: COLORS.error, fontWeight: "900" }}>{err}</Text>
+
+        <Pressable
+          onPress={refresh}
+          style={{
+            height: 48,
+            borderRadius: 14,
+            marginTop: 16,
+            backgroundColor: COLORS.primary,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "900" }}>Reîncearcă</Text>
+        </Pressable>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-        {/* HEADER */}
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 14 }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+        }
+      >
         <View
           style={{
             backgroundColor: COLORS.primaryDark,
@@ -162,61 +330,233 @@ export default function ProviderDashboardScreen() {
             Dashboard
           </Text>
 
-          <Text style={{ marginTop: 6, color: "#ffffffcc" }}>
+          <Text style={{ marginTop: 6, color: "#ffffffcc", lineHeight: 20 }}>
             {roleSubtitle(roleCtx)}
           </Text>
+
+          <View
+            style={{
+              flexDirection: "row",
+              gap: 10,
+              flexWrap: "wrap",
+              marginTop: 16,
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.14)",
+                borderRadius: 14,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Text style={{ color: "#ffffffaa", fontSize: 12 }}>
+                Programări azi
+              </Text>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 20 }}>
+                {visibleTodayAppointments.length}
+              </Text>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.14)",
+                borderRadius: 14,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Text style={{ color: "#ffffffaa", fontSize: 12 }}>
+                Pacienți azi
+              </Text>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 20 }}>
+                {visiblePatientsToday}
+              </Text>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: "rgba(255,255,255,0.14)",
+                borderRadius: 14,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+              }}
+            >
+              <Text style={{ color: "#ffffffaa", fontSize: 12 }}>
+                Referral-uri
+              </Text>
+              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 20 }}>
+                {pendingReferrals.length}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        {/* TODAY APPOINTMENTS */}
         <View
           style={{
             backgroundColor: COLORS.card,
-            borderRadius: 16,
+            borderRadius: 18,
             padding: 14,
             borderWidth: 1,
             borderColor: COLORS.border,
           }}
         >
-          <Text style={{ fontWeight: "900", color: COLORS.text }}>
-            Programări de astăzi
-          </Text>
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                {todayTitle(roleCtx)}
+              </Text>
 
-          {todayAppointments.length === 0 ? (
-            <Text style={{ marginTop: 8, color: COLORS.muted }}>
+              <Text style={{ marginTop: 4, color: COLORS.muted, fontSize: 13 }}>
+                Listă rapidă pentru activitatea clinică din ziua curentă.
+              </Text>
+            </View>
+
+            <Pressable
+              onPress={openAppointments}
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderRadius: 12,
+                backgroundColor: "#EEF4FF",
+              }}
+            >
+              <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
+                Toate
+              </Text>
+            </Pressable>
+          </View>
+
+          {visibleTodayAppointments.length === 0 ? (
+            <Text style={{ marginTop: 12, color: COLORS.muted }}>
               Nu există programări astăzi.
             </Text>
           ) : (
-            todayAppointments.map((a) => (
+            visibleTodayAppointments.map((a) => (
               <Pressable
                 key={a.id}
                 onPress={() =>
-                  a.episode_id ? openEpisode(a.episode_id) : undefined
+                  a.episode_id ? openEpisode(a.episode_id) : openAppointments()
                 }
                 style={{
-                  marginTop: 10,
+                  marginTop: 12,
                   padding: 12,
-                  borderRadius: 12,
+                  borderRadius: 14,
                   borderWidth: 1,
                   borderColor: COLORS.border,
+                  backgroundColor: "#FBFDFF",
                 }}
               >
-                <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                  #{a.id} • {a.status}
-                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                      {appointmentTitle(a)}
+                    </Text>
 
-                <Text style={{ marginTop: 4, color: COLORS.muted }}>
-                  {fmt(a.start_time)}
-                </Text>
+                    <Text style={{ marginTop: 4, color: COLORS.muted }}>
+                      {appointmentSubtitle(a)}
+                    </Text>
+
+                    <Text style={{ marginTop: 4, color: COLORS.muted }}>
+                      {appointmentProviderLine(a)}
+                    </Text>
+
+                    <Text style={{ marginTop: 6, color: COLORS.text }}>
+                      {appointmentTimeRange(a)}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      alignSelf: "flex-start",
+                      borderRadius: 999,
+                      paddingVertical: 5,
+                      paddingHorizontal: 9,
+                      backgroundColor: `${statusColor(a.status)}18`,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: statusColor(a.status),
+                        fontSize: 12,
+                        fontWeight: "900",
+                      }}
+                    >
+                      {statusLabel(a.status)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: 12,
+                  }}
+                >
+                  {a.episode_id ? (
+                    <View
+                      style={{
+                        borderRadius: 999,
+                        backgroundColor: "#EEF4FF",
+                        paddingVertical: 6,
+                        paddingHorizontal: 10,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: COLORS.primary,
+                          fontSize: 12,
+                          fontWeight: "900",
+                        }}
+                      >
+                        Deschide episodul
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      backgroundColor: "#F8FAFC",
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: COLORS.muted,
+                        fontSize: 12,
+                        fontWeight: "800",
+                      }}
+                    >
+                      Appointment #{a.id}
+                    </Text>
+                  </View>
+                </View>
               </Pressable>
             ))
           )}
         </View>
 
-        {/* REFERRALS */}
         <View
           style={{
             backgroundColor: COLORS.card,
-            borderRadius: 16,
+            borderRadius: 18,
             padding: 14,
             borderWidth: 1,
             borderColor: COLORS.border,
@@ -255,7 +595,6 @@ export default function ProviderDashboardScreen() {
           )}
         </View>
 
-        {/* LOGOUT */}
         <Pressable
           onPress={logout}
           style={{
