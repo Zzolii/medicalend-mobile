@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
-
+import { api } from "../../../_lib/api";
 import { createAppointment } from "../../../_lib/appointments";
 import { formatWallClockTime, toBackendNaiveIso } from "../../../_lib/datetime";
 import { fetchPatientMe } from "../../../_lib/patient";
@@ -51,6 +51,15 @@ const COLORS = {
   softBlueStrong: "#E0ECFF",
   softGreen: "#ECFDF5",
   softGray: "#F8FAFC",
+};
+
+type HomeCareStaffOut = {
+  membership_id: number;
+  user_id: number;
+  clinic_id: number;
+  role: string;
+  display_name?: string | null;
+  email?: string | null;
 };
 
 function Row({ label, value }: { label: string; value?: string | null }) {
@@ -168,6 +177,14 @@ function doctorDisplayName(d: ProviderDoctorPublicOut) {
   return `${d.title ? `${d.title} ` : ""}${d.name}`.trim();
 }
 
+function staffDisplayName(item: HomeCareStaffOut) {
+  return (
+    item.display_name?.trim() ||
+    item.email?.split("@")[0]?.trim() ||
+    `Asistent #${item.user_id}`
+  );
+}
+
 function providerTypeLabel(value?: string | null) {
   if (value === "home_care") return "Home Care";
   if (value === "clinic") return "Clinică";
@@ -192,6 +209,13 @@ function getSingleParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+async function fetchHomeCareStaff(providerId: number) {
+  const res = await api.get<HomeCareStaffOut[]>(
+    `/home-care/providers/${providerId}/staff?role=assistant`,
+  );
+  return res.data;
+}
+
 export default function PatientProviderDetail() {
   const { id, doctorId } = useLocalSearchParams<{
     id?: string | string[];
@@ -211,6 +235,13 @@ export default function PatientProviderDetail() {
   const [doctors, setDoctors] = useState<ProviderDoctorPublicOut[]>([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
 
+  const [staffBusy, setStaffBusy] = useState(false);
+  const [staffErr, setStaffErr] = useState<string | null>(null);
+  const [homeCareStaff, setHomeCareStaff] = useState<HomeCareStaffOut[]>([]);
+  const [selectedStaffUserId, setSelectedStaffUserId] = useState<number | null>(
+    null,
+  );
+
   const todayYmd = useMemo(() => toYmd(new Date()), []);
   const [selectedDate, setSelectedDate] = useState<string>(todayYmd);
 
@@ -225,9 +256,18 @@ export default function PatientProviderDetail() {
 
   const [bookingNotes, setBookingNotes] = useState("");
 
+  const isHomeCare = data?.provider_type === "home_care";
+
   const selectedDoctor = useMemo(
     () => doctors.find((d) => d.id === selectedDoctorId) ?? null,
     [doctors, selectedDoctorId],
+  );
+
+  const selectedStaff = useMemo(
+    () =>
+      homeCareStaff.find((item) => item.user_id === selectedStaffUserId) ??
+      null,
+    [homeCareStaff, selectedStaffUserId],
   );
 
   async function loadProvider() {
@@ -282,6 +322,38 @@ export default function PatientProviderDetail() {
     }
   }
 
+  async function loadHomeCareStaff() {
+    setStaffErr(null);
+    setStaffBusy(true);
+
+    try {
+      const rows = await fetchHomeCareStaff(providerId);
+      const nextStaff = rows ?? [];
+
+      setHomeCareStaff(nextStaff);
+
+      if (selectedStaffUserId === null && nextStaff.length > 0) {
+        setSelectedStaffUserId(nextStaff[0].user_id);
+      }
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const detail =
+        e?.response?.data?.detail ||
+        e?.message ||
+        "Încărcarea asistenților a eșuat.";
+
+      setStaffErr(String(detail));
+      setHomeCareStaff([]);
+
+      if (status === 401) {
+        await clearToken();
+        router.replace("/(auth)/login");
+      }
+    } finally {
+      setStaffBusy(false);
+    }
+  }
+
   async function loadAvailability(dateYmd: string) {
     setSlotsErr(null);
     setSlotsBusy(true);
@@ -289,7 +361,7 @@ export default function PatientProviderDetail() {
       const res = await fetchProviderAvailability({
         providerId,
         date: dateYmd,
-        doctorId: selectedDoctorId,
+        doctorId: isHomeCare ? null : selectedDoctorId,
       });
       setSlots(res ?? []);
     } catch (e: any) {
@@ -340,20 +412,33 @@ export default function PatientProviderDetail() {
   }, [providerId]);
 
   useEffect(() => {
+    if (data?.provider_type === "home_care") {
+      loadHomeCareStaff();
+      setSelectedDoctorId(null);
+      return;
+    }
+
+    setHomeCareStaff([]);
+    setSelectedStaffUserId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.provider_type, providerId]);
+
+  useEffect(() => {
     if (!Number.isFinite(initialDoctorId) || initialDoctorId <= 0) return;
     if (doctors.length === 0) return;
+    if (data?.provider_type === "home_care") return;
 
     const exists = doctors.some((doctor) => doctor.id === initialDoctorId);
     if (!exists) return;
 
     setSelectedDoctorId(initialDoctorId);
-  }, [initialDoctorId, doctors]);
+  }, [initialDoctorId, doctors, data?.provider_type]);
 
   useEffect(() => {
     if (!Number.isFinite(providerId) || providerId <= 0) return;
     loadAvailability(selectedDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, providerId, selectedDoctorId]);
+  }, [selectedDate, providerId, selectedDoctorId, data?.provider_type]);
 
   const markedDates = useMemo(() => {
     return {
@@ -375,7 +460,7 @@ export default function PatientProviderDetail() {
   async function confirmBooking() {
     if (!selectedSlot) return;
 
-    if (doctors.length > 0 && !selectedDoctorId) {
+    if (!isHomeCare && doctors.length > 0 && !selectedDoctorId) {
       Alert.alert(
         "Alege medicul",
         "Pentru această clinică trebuie să alegi medicul înainte de confirmarea programării.",
@@ -393,16 +478,27 @@ export default function PatientProviderDetail() {
         return;
       }
 
+      const assistantNote =
+        isHomeCare && selectedStaff
+          ? `Asistent selectat: ${staffDisplayName(selectedStaff)}${
+              selectedStaff.email ? ` (${selectedStaff.email})` : ""
+            }`
+          : "";
+
+      const finalNotes = [assistantNote, bookingNotes.trim()]
+        .filter(Boolean)
+        .join("\n\n");
+
       const payload = {
         patient_id: patientId,
         provider_id: providerId,
-        doctor_id: selectedDoctorId,
+        doctor_id: isHomeCare ? null : selectedDoctorId,
         start_time: toBackendNaiveIso(selectedSlot.start_time),
         end_time: selectedSlot.end_time
           ? toBackendNaiveIso(selectedSlot.end_time)
           : null,
         status: "scheduled",
-        notes: bookingNotes.trim() ? bookingNotes.trim() : null,
+        notes: finalNotes || null,
       };
 
       const created = await createAppointment(payload);
@@ -420,7 +516,13 @@ export default function PatientProviderDetail() {
 
       Alert.alert(
         "Programare creată",
-        `Programarea #${created.id} a fost creată cu succes.\n\nData: ${selectedDate}\nInterval: ${uiStart}${uiEnd ? `–${uiEnd}` : ""}${selectedDoctor ? `\nMedic: ${doctorDisplayName(selectedDoctor)}` : ""}\nFurnizor: ${providerDisplayName(data, providerId)}`,
+        `Programarea #${created.id} a fost creată cu succes.\n\nData: ${selectedDate}\nInterval: ${uiStart}${uiEnd ? `–${uiEnd}` : ""}${
+          isHomeCare && selectedStaff
+            ? `\nAsistent: ${staffDisplayName(selectedStaff)}`
+            : selectedDoctor
+              ? `\nMedic: ${doctorDisplayName(selectedDoctor)}`
+              : ""
+        }\nFurnizor: ${providerDisplayName(data, providerId)}`,
         [
           {
             text: "Vezi programările mele",
@@ -503,6 +605,9 @@ export default function PatientProviderDetail() {
             onPress={() => {
               loadProvider();
               loadDoctors();
+              if (data?.provider_type === "home_care") {
+                loadHomeCareStaff();
+              }
               loadAvailability(selectedDate);
             }}
             style={{
@@ -611,6 +716,9 @@ export default function PatientProviderDetail() {
                 onPress={() => {
                   loadProvider();
                   loadDoctors();
+                  if (isHomeCare) {
+                    loadHomeCareStaff();
+                  }
                   loadAvailability(selectedDate);
                 }}
                 style={{
@@ -757,88 +865,185 @@ export default function PatientProviderDetail() {
           </View>
         </View>
 
-        <View style={{ gap: 10 }}>
-          <SectionTitle
-            title="Alege medicul"
-            subtitle="Poți selecta un medic anume sau poți merge pe varianta „oricare disponibil”."
-          />
+        {isHomeCare ? (
+          <View style={{ gap: 10 }}>
+            <SectionTitle
+              title="Alege asistentul"
+              subtitle="Pentru Home Care, pacientul poate vedea asistentul care va merge la domiciliu."
+              actionLabel="Reîncarcă"
+              onPress={loadHomeCareStaff}
+            />
 
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 20,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            {doctorsBusy ? (
-              <View style={{ alignItems: "center", paddingVertical: 14 }}>
-                <ActivityIndicator color={COLORS.primary} />
-                <Text style={{ marginTop: 10, color: COLORS.muted }}>
-                  Se încarcă medicii...
+            <View
+              style={{
+                backgroundColor: COLORS.card,
+                borderRadius: 20,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+              }}
+            >
+              {staffBusy ? (
+                <View style={{ alignItems: "center", paddingVertical: 14 }}>
+                  <ActivityIndicator color={COLORS.primary} />
+                  <Text style={{ marginTop: 10, color: COLORS.muted }}>
+                    Se încarcă asistenții...
+                  </Text>
+                </View>
+              ) : staffErr ? (
+                <Text style={{ color: COLORS.error }}>{staffErr}</Text>
+              ) : homeCareStaff.length === 0 ? (
+                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                  Acest furnizor Home Care nu are încă asistenți vizibili pentru
+                  programare.
                 </Text>
-              </View>
-            ) : doctorsErr ? (
-              <Text style={{ color: COLORS.error }}>{doctorsErr}</Text>
-            ) : doctors.length === 0 ? (
-              <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
-                Acest furnizor nu are încă o listă separată de medici.
-                Programarea se poate face direct la nivel de furnizor.
-              </Text>
-            ) : (
-              <View style={{ gap: 10 }}>
-                <Pressable
-                  onPress={() => setSelectedDoctorId(null)}
-                  style={{
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor:
-                      selectedDoctorId === null
-                        ? COLORS.primary
-                        : COLORS.border,
-                    backgroundColor:
-                      selectedDoctorId === null ? COLORS.softBlue : "#fff",
-                    padding: 14,
-                  }}
-                >
-                  <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                    Oricare disponibil
-                  </Text>
-                  <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                    Sistemul îți arată toate intervalele disponibile pentru
-                    acest furnizor.
-                  </Text>
-                </Pressable>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <Pressable
+                    onPress={() => setSelectedStaffUserId(null)}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor:
+                        selectedStaffUserId === null
+                          ? COLORS.primary
+                          : COLORS.border,
+                      backgroundColor:
+                        selectedStaffUserId === null ? COLORS.softBlue : "#fff",
+                      padding: 14,
+                    }}
+                  >
+                    <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                      Oricare asistent disponibil
+                    </Text>
+                    <Text style={{ marginTop: 6, color: COLORS.muted }}>
+                      Furnizorul va confirma intern asistentul disponibil.
+                    </Text>
+                  </Pressable>
 
-                {doctors.map((doctor) => {
-                  const active = selectedDoctorId === doctor.id;
+                  {homeCareStaff.map((staff) => {
+                    const active = selectedStaffUserId === staff.user_id;
 
-                  return (
-                    <Pressable
-                      key={doctor.id}
-                      onPress={() => setSelectedDoctorId(doctor.id)}
-                      style={{
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: active ? COLORS.primary : COLORS.border,
-                        backgroundColor: active ? COLORS.softBlue : "#fff",
-                        padding: 14,
-                      }}
-                    >
-                      <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                        {doctorDisplayName(doctor)}
-                      </Text>
-                      <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                        {doctorSubtitle(doctor)}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
+                    return (
+                      <Pressable
+                        key={`${staff.membership_id}-${staff.user_id}`}
+                        onPress={() => setSelectedStaffUserId(staff.user_id)}
+                        style={{
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: active ? COLORS.primary : COLORS.border,
+                          backgroundColor: active ? COLORS.softBlue : "#fff",
+                          padding: 14,
+                        }}
+                      >
+                        <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                          {staffDisplayName(staff)}
+                        </Text>
+                        <Text style={{ marginTop: 6, color: COLORS.muted }}>
+                          {staff.email || "Asistent Home Care"}
+                        </Text>
+                        {active ? (
+                          <Text
+                            style={{
+                              marginTop: 8,
+                              color: COLORS.primary,
+                              fontWeight: "900",
+                            }}
+                          >
+                            Selectat
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        ) : (
+          <View style={{ gap: 10 }}>
+            <SectionTitle
+              title="Alege medicul"
+              subtitle="Poți selecta un medic anume sau poți merge pe varianta „oricare disponibil”."
+            />
+
+            <View
+              style={{
+                backgroundColor: COLORS.card,
+                borderRadius: 20,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+              }}
+            >
+              {doctorsBusy ? (
+                <View style={{ alignItems: "center", paddingVertical: 14 }}>
+                  <ActivityIndicator color={COLORS.primary} />
+                  <Text style={{ marginTop: 10, color: COLORS.muted }}>
+                    Se încarcă medicii...
+                  </Text>
+                </View>
+              ) : doctorsErr ? (
+                <Text style={{ color: COLORS.error }}>{doctorsErr}</Text>
+              ) : doctors.length === 0 ? (
+                <Text style={{ color: COLORS.muted, lineHeight: 21 }}>
+                  Acest furnizor nu are încă o listă separată de medici.
+                  Programarea se poate face direct la nivel de furnizor.
+                </Text>
+              ) : (
+                <View style={{ gap: 10 }}>
+                  <Pressable
+                    onPress={() => setSelectedDoctorId(null)}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor:
+                        selectedDoctorId === null
+                          ? COLORS.primary
+                          : COLORS.border,
+                      backgroundColor:
+                        selectedDoctorId === null ? COLORS.softBlue : "#fff",
+                      padding: 14,
+                    }}
+                  >
+                    <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                      Oricare disponibil
+                    </Text>
+                    <Text style={{ marginTop: 6, color: COLORS.muted }}>
+                      Sistemul îți arată toate intervalele disponibile pentru
+                      acest furnizor.
+                    </Text>
+                  </Pressable>
+
+                  {doctors.map((doctor) => {
+                    const active = selectedDoctorId === doctor.id;
+
+                    return (
+                      <Pressable
+                        key={doctor.id}
+                        onPress={() => setSelectedDoctorId(doctor.id)}
+                        style={{
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: active ? COLORS.primary : COLORS.border,
+                          backgroundColor: active ? COLORS.softBlue : "#fff",
+                          padding: 14,
+                        }}
+                      >
+                        <Text style={{ fontWeight: "900", color: COLORS.text }}>
+                          {doctorDisplayName(doctor)}
+                        </Text>
+                        <Text style={{ marginTop: 6, color: COLORS.muted }}>
+                          {doctorSubtitle(doctor)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         <View style={{ gap: 10 }}>
           <SectionTitle
@@ -876,9 +1081,13 @@ export default function PatientProviderDetail() {
           <SectionTitle
             title="Intervale disponibile"
             subtitle={
-              selectedDoctor
-                ? `Afișăm disponibilitatea pentru ${doctorDisplayName(selectedDoctor)}.`
-                : "Afișăm toate intervalele disponibile pentru furnizor."
+              isHomeCare
+                ? selectedStaff
+                  ? `Afișăm disponibilitatea furnizorului pentru asistentul ${staffDisplayName(selectedStaff)}.`
+                  : "Afișăm disponibilitatea generală a furnizorului Home Care."
+                : selectedDoctor
+                  ? `Afișăm disponibilitatea pentru ${doctorDisplayName(selectedDoctor)}.`
+                  : "Afișăm toate intervalele disponibile pentru furnizor."
             }
             actionLabel="Reîncarcă"
             onPress={() => loadAvailability(selectedDate)}
@@ -927,7 +1136,7 @@ export default function PatientProviderDetail() {
               <View style={{ marginTop: 14 }}>
                 <EmptyCard
                   title="Nu există disponibilitate pentru această zi"
-                  subtitle="Încearcă o altă zi sau schimbă medicul selectat pentru a vedea alte opțiuni."
+                  subtitle="Încearcă o altă zi sau schimbă selecția pentru a vedea alte opțiuni."
                 />
               </View>
             ) : (
@@ -1037,10 +1246,14 @@ export default function PatientProviderDetail() {
               </Text>
 
               <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                Medic:{" "}
-                {selectedDoctor
-                  ? doctorDisplayName(selectedDoctor)
-                  : "Oricare disponibil"}
+                {isHomeCare ? "Asistent" : "Medic"}:{" "}
+                {isHomeCare
+                  ? selectedStaff
+                    ? staffDisplayName(selectedStaff)
+                    : "Oricare asistent disponibil"
+                  : selectedDoctor
+                    ? doctorDisplayName(selectedDoctor)
+                    : "Oricare disponibil"}
               </Text>
 
               <Text
@@ -1061,7 +1274,11 @@ export default function PatientProviderDetail() {
             <TextInput
               value={bookingNotes}
               onChangeText={setBookingNotes}
-              placeholder="Ex.: control, simptome, durere, consult..."
+              placeholder={
+                isHomeCare
+                  ? "Ex.: pansament, injecție, control la domiciliu..."
+                  : "Ex.: control, simptome, durere, consult..."
+              }
               placeholderTextColor={COLORS.muted}
               multiline
               editable={!bookingBusy}
