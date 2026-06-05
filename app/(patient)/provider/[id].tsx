@@ -211,7 +211,7 @@ function getSingleParam(value?: string | string[]) {
 
 async function fetchHomeCareStaff(providerId: number) {
   const res = await api.get<HomeCareStaffOut[]>(
-    `/home-care/providers/${providerId}/staff?role=assistant`,
+    `/home-care/providers/${providerId}/staff`,
   );
   return res.data;
 }
@@ -868,8 +868,8 @@ export default function PatientProviderDetail() {
         {isHomeCare ? (
           <View style={{ gap: 10 }}>
             <SectionTitle
-              title="Alege asistentul"
-              subtitle="Pentru Home Care, pacientul poate vedea asistentul care va merge la domiciliu."
+              title="Alege specialistul Home Care"
+              subtitle="Pentru Home Care, pacientul poate vedea specialistul care va merge la domiciliu."
               actionLabel="Reîncarcă"
               onPress={loadHomeCareStaff}
             />
@@ -914,10 +914,10 @@ export default function PatientProviderDetail() {
                     }}
                   >
                     <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                      Oricare asistent disponibil
+                      Oricare specialist disponibil
                     </Text>
                     <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                      Furnizorul va confirma intern asistentul disponibil.
+                      Furnizorul va confirma intern specialistul disponibil.
                     </Text>
                   </Pressable>
 
