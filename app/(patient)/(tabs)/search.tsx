@@ -25,18 +25,14 @@ const COLORS = {
   primary: "#2F6BFF",
   primaryLight: "#4FB3E8",
   primaryDark: "#0F2F6B",
-
   bg: "#F7F9FC",
   card: "#FFFFFF",
   border: "#E6EAF2",
-
   text: "#0F172A",
   muted: "#64748B",
-
   error: "#EF4444",
   success: "#22C55E",
   warning: "#F59E0B",
-
   softBlue: "#EEF4FF",
   softBlueStrong: "#E0ECFF",
   softGreen: "#ECFDF5",
@@ -141,7 +137,6 @@ function doctorMatchesSpecialty(
 ) {
   const query = normalizeText(specialtyValue);
   if (!query) return true;
-
   return normalizeText(item.specialty_name).includes(query);
 }
 
@@ -210,7 +205,7 @@ function SectionHeader({
   subtitle: string;
 }) {
   return (
-    <View>
+    <View style={{ width: "100%" }}>
       <Text style={{ fontSize: 18, fontWeight: "900", color: COLORS.text }}>
         {title}
       </Text>
@@ -234,7 +229,9 @@ function ModeChip({
     <Pressable
       onPress={onPress}
       style={{
-        flex: 1,
+        flexGrow: 1,
+        flexBasis: 96,
+        minWidth: 96,
         height: 46,
         borderRadius: 14,
         alignItems: "center",
@@ -242,9 +239,12 @@ function ModeChip({
         backgroundColor: active ? COLORS.primary : "#fff",
         borderWidth: 1,
         borderColor: active ? COLORS.primary : COLORS.border,
+        paddingHorizontal: 10,
       }}
     >
       <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
         style={{
           color: active ? "#fff" : COLORS.text,
           fontWeight: "900",
@@ -275,6 +275,8 @@ function SearchInput({
       placeholderTextColor={COLORS.muted}
       keyboardType={keyboardType ?? "default"}
       style={{
+        width: "100%",
+        minWidth: 0,
         height: 46,
         borderRadius: 14,
         borderWidth: 1,
@@ -287,10 +289,32 @@ function SearchInput({
   );
 }
 
+function ResponsivePair({ children }: { children: React.ReactNode }) {
+  return (
+    <View
+      style={{
+        width: "100%",
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 10,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function ResponsiveField({ children }: { children: React.ReactNode }) {
+  return (
+    <View style={{ flexGrow: 1, flexBasis: 150, minWidth: 0 }}>{children}</View>
+  );
+}
+
 function EmptyCard({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <View
       style={{
+        width: "100%",
         backgroundColor: COLORS.card,
         borderRadius: 20,
         padding: 18,
@@ -357,7 +381,7 @@ function SpecialtyPicker({
   }, [items, value]);
 
   return (
-    <View>
+    <View style={{ width: "100%", minWidth: 0 }}>
       <TextInput
         value={value}
         onChangeText={(next) => {
@@ -368,6 +392,7 @@ function SpecialtyPicker({
         placeholder="Specialitate"
         placeholderTextColor={COLORS.muted}
         style={{
+          width: "100%",
           height: 46,
           borderRadius: 14,
           borderWidth: 1,
@@ -435,6 +460,7 @@ function ProviderCard({ p, onPress }: { p: ProviderOut; onPress: () => void }) {
     <Pressable
       onPress={onPress}
       style={{
+        width: "100%",
         backgroundColor: COLORS.card,
         borderRadius: 22,
         borderWidth: 1,
@@ -492,13 +518,7 @@ function ProviderCard({ p, onPress }: { p: ProviderOut; onPress: () => void }) {
           {providerDisplayName(p)}
         </Text>
 
-        <Text
-          style={{
-            marginTop: 6,
-            color: COLORS.text,
-            fontWeight: "700",
-          }}
-        >
+        <Text style={{ marginTop: 6, color: COLORS.text, fontWeight: "700" }}>
           {providerSubtitle(p)}
         </Text>
 
@@ -518,14 +538,18 @@ function ProviderCard({ p, onPress }: { p: ProviderOut; onPress: () => void }) {
         <View
           style={{
             marginTop: 14,
-            height: 44,
+            minHeight: 44,
             borderRadius: 14,
             backgroundColor: COLORS.primary,
             alignItems: "center",
             justifyContent: "center",
+            paddingHorizontal: 12,
+            paddingVertical: 10,
           }}
         >
-          <Text style={{ color: "#fff", fontWeight: "900" }}>
+          <Text
+            style={{ color: "#fff", fontWeight: "900", textAlign: "center" }}
+          >
             Vezi profilul și programările
           </Text>
         </View>
@@ -563,6 +587,7 @@ function DoctorCard({
         })
       }
       style={{
+        width: "100%",
         backgroundColor: COLORS.card,
         borderRadius: 22,
         borderWidth: 1,
@@ -667,14 +692,18 @@ function DoctorCard({
         <View
           style={{
             marginTop: 14,
-            height: 44,
+            minHeight: 44,
             borderRadius: 14,
             backgroundColor: COLORS.primary,
             alignItems: "center",
             justifyContent: "center",
+            paddingHorizontal: 12,
+            paddingVertical: 10,
           }}
         >
-          <Text style={{ color: "#fff", fontWeight: "900" }}>
+          <Text
+            style={{ color: "#fff", fontWeight: "900", textAlign: "center" }}
+          >
             Vezi clinica și rezervă
           </Text>
         </View>
@@ -930,9 +959,11 @@ export default function PatientSearch() {
       contentContainerStyle={{ padding: 16, paddingBottom: 28, gap: 16 }}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
+      horizontal={false}
     >
       <View
         style={{
+          width: "100%",
           backgroundColor: COLORS.primaryDark,
           borderRadius: 28,
           padding: 20,
@@ -990,7 +1021,7 @@ export default function PatientSearch() {
               marginTop: 12,
               color: "rgba(255,255,255,0.82)",
               lineHeight: 21,
-              maxWidth: "88%",
+              maxWidth: "100%",
             }}
           >
             Caută clinici, medici sau servicii de îngrijire la domiciliu și
@@ -1001,6 +1032,7 @@ export default function PatientSearch() {
 
       <View
         style={{
+          width: "100%",
           backgroundColor: COLORS.card,
           borderRadius: 20,
           padding: 16,
@@ -1009,7 +1041,7 @@ export default function PatientSearch() {
           gap: 12,
         }}
       >
-        <View style={{ flexDirection: "row", gap: 10 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
           <ModeChip
             active={mode === "clinics"}
             label="Clinici"
@@ -1040,6 +1072,7 @@ export default function PatientSearch() {
         <>
           <View
             style={{
+              width: "100%",
               backgroundColor: "#fff",
               borderRadius: 20,
               padding: 16,
@@ -1067,36 +1100,45 @@ export default function PatientSearch() {
               items={SPECIALTY_OPTIONS}
             />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+            <ResponsivePair>
+              <ResponsiveField>
                 <SearchInput
                   value={clinicCity}
                   onChangeText={setClinicCity}
                   placeholder="Oraș"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
+              </ResponsiveField>
+              <ResponsiveField>
                 <SearchInput
                   value={clinicCounty}
                   onChangeText={setClinicCounty}
                   placeholder="Județ"
                 />
-              </View>
-            </View>
+              </ResponsiveField>
+            </ResponsivePair>
 
             <Pressable
               onPress={runClinicSearch}
               disabled={!canSearchClinics || clinicBusy}
               style={{
-                height: 46,
+                width: "100%",
+                minHeight: 46,
                 borderRadius: 14,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: COLORS.primary,
                 opacity: !canSearchClinics || clinicBusy ? 0.6 : 1,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
               }}
             >
-              <Text style={{ color: "#fff", fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                  textAlign: "center",
+                }}
+              >
                 {clinicBusy ? "Se caută..." : "Caută clinici"}
               </Text>
             </Pressable>
@@ -1120,6 +1162,7 @@ export default function PatientSearch() {
           {clinicBusy ? (
             <View
               style={{
+                width: "100%",
                 backgroundColor: COLORS.card,
                 borderRadius: 20,
                 padding: 20,
@@ -1139,7 +1182,7 @@ export default function PatientSearch() {
               subtitle="Încearcă alt nume, alt oraș sau o altă specialitate."
             />
           ) : (
-            <View style={{ gap: 12 }}>
+            <View style={{ width: "100%", gap: 12 }}>
               {clinicItems.map((p) => (
                 <ProviderCard
                   key={`clinic-${p.id}`}
@@ -1154,6 +1197,7 @@ export default function PatientSearch() {
         <>
           <View
             style={{
+              width: "100%",
               backgroundColor: "#fff",
               borderRadius: 20,
               padding: 16,
@@ -1187,53 +1231,62 @@ export default function PatientSearch() {
               placeholder="Nume clinică"
             />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+            <ResponsivePair>
+              <ResponsiveField>
                 <SearchInput
                   value={doctorCity}
                   onChangeText={setDoctorCity}
                   placeholder="Oraș"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
+              </ResponsiveField>
+              <ResponsiveField>
                 <SearchInput
                   value={doctorCounty}
                   onChangeText={setDoctorCounty}
                   placeholder="Județ"
                 />
-              </View>
-            </View>
+              </ResponsiveField>
+            </ResponsivePair>
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+            <ResponsivePair>
+              <ResponsiveField>
                 <SearchInput
                   value={doctorDate}
                   onChangeText={setDoctorDate}
                   placeholder="Dată (YYYY-MM-DD)"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
+              </ResponsiveField>
+              <ResponsiveField>
                 <SearchInput
                   value={doctorTime}
                   onChangeText={setDoctorTime}
-                  placeholder="Oră, ex: 8, 8:00, 08:00"
+                  placeholder="Oră, ex: 8, 8:00"
                 />
-              </View>
-            </View>
+              </ResponsiveField>
+            </ResponsivePair>
 
             <Pressable
               onPress={runDoctorSearch}
               disabled={!canSearchDoctors || doctorBusy}
               style={{
-                height: 46,
+                width: "100%",
+                minHeight: 46,
                 borderRadius: 14,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: COLORS.primary,
                 opacity: !canSearchDoctors || doctorBusy ? 0.6 : 1,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
               }}
             >
-              <Text style={{ color: "#fff", fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                  textAlign: "center",
+                }}
+              >
                 {doctorBusy ? "Se caută..." : "Caută medici"}
               </Text>
             </Pressable>
@@ -1257,6 +1310,7 @@ export default function PatientSearch() {
           {doctorBusy ? (
             <View
               style={{
+                width: "100%",
                 backgroundColor: COLORS.card,
                 borderRadius: 20,
                 padding: 20,
@@ -1276,7 +1330,7 @@ export default function PatientSearch() {
               subtitle="Încearcă alt nume, altă specialitate sau schimbă intervalul selectat."
             />
           ) : (
-            <View style={{ gap: 12 }}>
+            <View style={{ width: "100%", gap: 12 }}>
               {doctorItems.map((item) => (
                 <DoctorCard
                   key={`doctor-${item.doctor_id}-${item.provider_id}`}
@@ -1296,6 +1350,7 @@ export default function PatientSearch() {
         <>
           <View
             style={{
+              width: "100%",
               backgroundColor: "#fff",
               borderRadius: 20,
               padding: 16,
@@ -1321,22 +1376,22 @@ export default function PatientSearch() {
               placeholder="Serviciu (ex.: injecție, perfuzie, pansament)"
             />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+            <ResponsivePair>
+              <ResponsiveField>
                 <SearchInput
                   value={hcCity}
                   onChangeText={setHcCity}
                   placeholder="Oraș"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
+              </ResponsiveField>
+              <ResponsiveField>
                 <SearchInput
                   value={hcCounty}
                   onChangeText={setHcCounty}
                   placeholder="Județ"
                 />
-              </View>
-            </View>
+              </ResponsiveField>
+            </ResponsivePair>
 
             <SearchInput
               value={hcCoverageArea}
@@ -1344,36 +1399,45 @@ export default function PatientSearch() {
               placeholder="Zonă de acoperire / arie de activitate"
             />
 
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <View style={{ flex: 1 }}>
+            <ResponsivePair>
+              <ResponsiveField>
                 <SearchInput
                   value={hcDate}
                   onChangeText={setHcDate}
                   placeholder="Dată (YYYY-MM-DD)"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
+              </ResponsiveField>
+              <ResponsiveField>
                 <SearchInput
                   value={hcTime}
                   onChangeText={setHcTime}
-                  placeholder="Oră, ex: 8, 8:00, 08:00"
+                  placeholder="Oră, ex: 8, 8:00"
                 />
-              </View>
-            </View>
+              </ResponsiveField>
+            </ResponsivePair>
 
             <Pressable
               onPress={runHomeCareSearch}
               disabled={!canSearchHomeCare || hcBusy}
               style={{
-                height: 46,
+                width: "100%",
+                minHeight: 46,
                 borderRadius: 14,
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: COLORS.primary,
                 opacity: !canSearchHomeCare || hcBusy ? 0.6 : 1,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
               }}
             >
-              <Text style={{ color: "#fff", fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                  textAlign: "center",
+                }}
+              >
                 {hcBusy ? "Se caută..." : "Caută servicii"}
               </Text>
             </Pressable>
@@ -1397,6 +1461,7 @@ export default function PatientSearch() {
           {hcBusy ? (
             <View
               style={{
+                width: "100%",
                 backgroundColor: COLORS.card,
                 borderRadius: 20,
                 padding: 20,
@@ -1416,7 +1481,7 @@ export default function PatientSearch() {
               subtitle="Încearcă alt serviciu, alt oraș sau schimbă intervalul selectat."
             />
           ) : (
-            <View style={{ gap: 12 }}>
+            <View style={{ width: "100%", gap: 12 }}>
               {hcItems.map((p) => (
                 <ProviderCard
                   key={`hc-${p.id}`}
