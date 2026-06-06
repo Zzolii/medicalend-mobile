@@ -1,4 +1,4 @@
-//Path: medicalend-mobile/app/(provider)/(tabs)/staff.tsx
+// Path: medicalend-mobile/app/(provider)/(tabs)/staff.tsx
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -102,6 +102,10 @@ function doctorDisplayName(doctor?: ProviderDoctorOut | null) {
   if (!doctor) return "-";
   const title = doctor.title?.trim() ? `${doctor.title.trim()} ` : "";
   return `${title}${doctor.name}`.trim();
+}
+
+function cleanDisplayName(value: string) {
+  return value.trim();
 }
 
 function FieldLabel({ children }: { children: string }) {
@@ -361,6 +365,7 @@ function StaffCard({
 }) {
   const userStatus = statusMeta(item.user_is_active);
   const membershipStatus = statusMeta(item.membership_is_active);
+  const visibleName = item.display_name?.trim();
 
   return (
     <View
@@ -381,11 +386,25 @@ function StaffCard({
         }}
       >
         <View style={{ flex: 1 }}>
+          {visibleName ? (
+            <Text
+              style={{
+                color: COLORS.text,
+                fontWeight: "900",
+                fontSize: 16,
+                lineHeight: 22,
+              }}
+            >
+              {visibleName}
+            </Text>
+          ) : null}
+
           <Text
             style={{
-              color: COLORS.text,
-              fontWeight: "900",
-              fontSize: 16,
+              marginTop: visibleName ? 4 : 0,
+              color: visibleName ? COLORS.muted : COLORS.text,
+              fontWeight: visibleName ? "700" : "900",
+              fontSize: visibleName ? 13 : 16,
               lineHeight: 22,
             }}
           >
@@ -431,12 +450,38 @@ function StaffCard({
           padding: 14,
         }}
       >
-        {item.clinic_role === "doctor" ? (
+        {visibleName ? (
           <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+            Nume afișat pacientului: {visibleName}
+          </Text>
+        ) : (
+          <Text
+            style={{ color: COLORS.warning, fontWeight: "900", fontSize: 14 }}
+          >
+            Nume afișat pacientului: necompletat
+          </Text>
+        )}
+
+        {item.clinic_role === "doctor" ? (
+          <Text
+            style={{
+              marginTop: 6,
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: 14,
+            }}
+          >
             Medic asociat: {item.provider_doctor_name || "-"}
           </Text>
         ) : (
-          <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
+          <Text
+            style={{
+              marginTop: 6,
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: 14,
+            }}
+          >
             Rol operațional: {roleLabel(item.clinic_role)}
           </Text>
         )}
@@ -511,11 +556,13 @@ export default function ProviderStaffScreen() {
   const [createPassword, setCreatePassword] = useState("");
   const [createRole, setCreateRole] = useState<ClinicStaffRole>("doctor");
   const [createDoctorId, setCreateDoctorId] = useState<number | null>(null);
+  const [createDisplayName, setCreateDisplayName] = useState("");
   const [createActive, setCreateActive] = useState(true);
 
   const [editingItem, setEditingItem] = useState<ClinicStaffRow | null>(null);
   const [editRole, setEditRole] = useState<ClinicStaffRole>("doctor");
   const [editDoctorId, setEditDoctorId] = useState<number | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editActive, setEditActive] = useState(true);
 
@@ -570,6 +617,7 @@ export default function ProviderStaffScreen() {
     setCreatePassword("");
     setCreateRole("doctor");
     setCreateDoctorId(doctors.length > 0 ? doctors[0].id : null);
+    setCreateDisplayName("");
     setCreateActive(true);
     setCreateOpen(true);
   }
@@ -578,6 +626,7 @@ export default function ProviderStaffScreen() {
     setEditingItem(item);
     setEditRole((item.clinic_role as ClinicStaffRole) || "doctor");
     setEditDoctorId(item.provider_doctor_id ?? null);
+    setEditDisplayName(item.display_name ?? "");
     setEditPassword("");
     setEditActive(!!item.user_is_active);
     setEditOpen(true);
@@ -612,6 +661,8 @@ export default function ProviderStaffScreen() {
   async function handleCreate() {
     if (submitBusy) return;
 
+    const nextDisplayName = cleanDisplayName(createDisplayName);
+
     if (!createEmail.trim()) {
       Alert.alert("Date lipsă", "Introdu adresa de e-mail.");
       return;
@@ -621,6 +672,14 @@ export default function ProviderStaffScreen() {
       Alert.alert(
         "Parolă invalidă",
         "Parola trebuie să aibă minimum 8 caractere.",
+      );
+      return;
+    }
+
+    if (createRole === "assistant" && !nextDisplayName) {
+      Alert.alert(
+        "Date lipsă",
+        "Pentru asistent trebuie să introduci numele afișat pacientului.",
       );
       return;
     }
@@ -641,6 +700,7 @@ export default function ProviderStaffScreen() {
         password: createPassword,
         clinic_role: createRole,
         provider_doctor_id: createRole === "doctor" ? createDoctorId : null,
+        display_name: nextDisplayName || null,
         is_active: createActive,
       });
 
@@ -661,10 +721,20 @@ export default function ProviderStaffScreen() {
   async function handleEdit() {
     if (!editingItem || submitBusy) return;
 
+    const nextDisplayName = cleanDisplayName(editDisplayName);
+
     if (editPassword.trim().length > 0 && editPassword.trim().length < 8) {
       Alert.alert(
         "Parolă invalidă",
         "Parola trebuie să aibă minimum 8 caractere.",
+      );
+      return;
+    }
+
+    if (editRole === "assistant" && !nextDisplayName) {
+      Alert.alert(
+        "Date lipsă",
+        "Pentru asistent trebuie să introduci numele afișat pacientului.",
       );
       return;
     }
@@ -683,6 +753,7 @@ export default function ProviderStaffScreen() {
       const updated = await updateClinicStaff(editingItem.user_id, {
         clinic_role: editRole,
         provider_doctor_id: editRole === "doctor" ? editDoctorId : null,
+        display_name: nextDisplayName || null,
         is_active: editActive,
         password: editPassword.trim() ? editPassword : undefined,
       });
@@ -978,6 +1049,29 @@ export default function ProviderStaffScreen() {
                 }}
               />
 
+              <FieldLabel>Nume afișat pacientului</FieldLabel>
+              <TextInput
+                value={createDisplayName}
+                onChangeText={setCreateDisplayName}
+                placeholder="Ex.: As. med. Maria Popescu"
+                editable={!submitBusy}
+                style={{
+                  height: 48,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  paddingHorizontal: 12,
+                  backgroundColor: "#fff",
+                  color: COLORS.text,
+                }}
+              />
+              <Text
+                style={{ marginTop: 6, color: COLORS.muted, lineHeight: 19 }}
+              >
+                Acest nume va fi afișat pacientului în programările Home Care.
+                Pentru asistenți este obligatoriu.
+              </Text>
+
               <FieldLabel>Parolă</FieldLabel>
               <TextInput
                 value={createPassword}
@@ -1102,6 +1196,29 @@ export default function ProviderStaffScreen() {
 
               <Text style={{ marginTop: 10, color: COLORS.muted }}>
                 {editingItem?.email || "-"}
+              </Text>
+
+              <FieldLabel>Nume afișat pacientului</FieldLabel>
+              <TextInput
+                value={editDisplayName}
+                onChangeText={setEditDisplayName}
+                placeholder="Ex.: As. med. Maria Popescu"
+                editable={!submitBusy}
+                style={{
+                  height: 48,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  paddingHorizontal: 12,
+                  backgroundColor: "#fff",
+                  color: COLORS.text,
+                }}
+              />
+              <Text
+                style={{ marginTop: 6, color: COLORS.muted, lineHeight: 19 }}
+              >
+                Acest nume va fi afișat pacientului în programările Home Care.
+                Pentru asistenți este obligatoriu.
               </Text>
 
               <FieldLabel>Rol clinică</FieldLabel>

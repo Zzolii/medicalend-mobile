@@ -19,6 +19,7 @@ export type ClinicStaffRow = {
   clinic_role: string;
   provider_doctor_id?: number | null;
   provider_doctor_name?: string | null;
+  display_name?: string | null;
   membership_is_active: boolean;
 
   created_at: string;
@@ -29,12 +30,14 @@ export type ClinicStaffCreatePayload = {
   password: string;
   clinic_role: ClinicStaffRole;
   provider_doctor_id?: number | null;
+  display_name?: string | null;
   is_active?: boolean;
 };
 
 export type ClinicStaffUpdatePayload = {
   clinic_role?: ClinicStaffRole;
   provider_doctor_id?: number | null;
+  display_name?: string | null;
   is_active?: boolean;
   password?: string;
 };
