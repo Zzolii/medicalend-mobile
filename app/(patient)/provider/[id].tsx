@@ -1158,7 +1158,7 @@ export default function PatientProviderDetail() {
                       onPress={() => onPickSlot(s)}
                       disabled={!available}
                       style={{
-                        minWidth: "30%",
+                        width: "48%",
                         paddingVertical: 12,
                         paddingHorizontal: 12,
                         borderRadius: 14,
