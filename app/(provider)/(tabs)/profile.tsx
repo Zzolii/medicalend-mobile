@@ -24,10 +24,12 @@ import {
   deleteMyWeeklyAvailability,
   fetchMyAvailabilityExceptions,
   fetchMyWeeklyAvailability,
+  SLOT_DURATION_OPTIONS,
   upsertMyAvailabilityException,
   upsertMyWeeklyAvailability,
   type ProviderAvailabilityExceptionOut,
   type ProviderWeeklyAvailabilityOut,
+  type SlotDurationMinutes,
 } from "../../../_lib/providerAvailability";
 import {
   createProviderDoctor,
@@ -250,6 +252,8 @@ export default function ProviderProfileScreen() {
   const [selectedWeekday, setSelectedWeekday] = useState<number>(0);
   const [availabilityStart, setAvailabilityStart] = useState("08:00");
   const [availabilityEnd, setAvailabilityEnd] = useState("16:00");
+  const [slotDurationMinutes, setSlotDurationMinutes] =
+    useState<SlotDurationMinutes>(30);
 
   const [exceptionDate, setExceptionDate] = useState("");
   const [exceptionClosed, setExceptionClosed] = useState(true);
@@ -671,6 +675,7 @@ export default function ProviderProfileScreen() {
         weekday: selectedWeekday,
         start_time: `${availabilityStart}:00`,
         end_time: `${availabilityEnd}:00`,
+        slot_duration_minutes: slotDurationMinutes,
       });
       setAvailabilityModalOpen(false);
       await loadAvailabilityData(selectedCalendarDoctorId);
@@ -2079,6 +2084,9 @@ export default function ProviderProfileScreen() {
                         <Text style={{ marginTop: 4, color: COLORS.muted }}>
                           {formatTime(row.start_time)} -{" "}
                           {formatTime(row.end_time)}
+                          {" • slot "}
+                          {row.slot_duration_minutes ?? 30}
+                          {" min"}
                         </Text>
 
                         <Pressable
@@ -2616,6 +2624,42 @@ export default function ProviderProfileScreen() {
                     color: COLORS.text,
                   }}
                 />
+
+                <FieldLabel required>Durată slot</FieldLabel>
+                <View
+                  style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}
+                >
+                  {SLOT_DURATION_OPTIONS.map((minutes) => {
+                    const active = slotDurationMinutes === minutes;
+
+                    return (
+                      <Pressable
+                        key={minutes}
+                        onPress={() => setSlotDurationMinutes(minutes)}
+                        style={{
+                          minHeight: 42,
+                          minWidth: 72,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: active ? COLORS.primary : COLORS.border,
+                          backgroundColor: active ? "#EEF4FF" : "#fff",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          paddingHorizontal: 10,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: COLORS.text,
+                            fontWeight: active ? "900" : "700",
+                          }}
+                        >
+                          {minutes} min
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
                   <Pressable

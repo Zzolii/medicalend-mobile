@@ -2,6 +2,10 @@
 
 import { api } from "./api";
 
+export type SlotDurationMinutes = 5 | 10 | 15 | 20 | 30;
+
+export const SLOT_DURATION_OPTIONS: SlotDurationMinutes[] = [5, 10, 15, 20, 30];
+
 export type ProviderAvailabilitySlot = {
   start_time: string;
   end_time: string;
@@ -15,6 +19,7 @@ export type ProviderWeeklyAvailabilityOut = {
   weekday: number;
   start_time: string;
   end_time: string;
+  slot_duration_minutes: SlotDurationMinutes;
   is_active: boolean;
 };
 
@@ -23,6 +28,7 @@ export type ProviderWeeklyAvailabilityCreatePayload = {
   weekday: number;
   start_time: string;
   end_time: string;
+  slot_duration_minutes: SlotDurationMinutes;
 };
 
 export type ProviderAvailabilityExceptionOut = {
@@ -49,13 +55,15 @@ export async function fetchProviderAvailability(params: {
   providerId: number;
   date: string;
   doctorId?: number | null;
+  duration?: number | null;
 }): Promise<ProviderAvailabilitySlot[]> {
-  const { providerId, date, doctorId } = params;
+  const { providerId, date, doctorId, duration } = params;
 
   const res = await api.get(`/providers/${providerId}/free-slots`, {
     params: {
       date,
       doctor_id: doctorId || undefined,
+      duration: duration || undefined,
     },
   });
 
