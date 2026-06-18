@@ -265,6 +265,19 @@ export default function ProviderProfileScreen() {
     return roleCtx?.isClinicAdmin === true || roleCtx?.appRole === "provider";
   }, [roleCtx]);
 
+  const canManageStructure = canManageClinicProfile;
+
+  const canManageAvailability = useMemo(() => {
+    return (
+      roleCtx?.isClinicAdmin === true ||
+      roleCtx?.isDoctor === true ||
+      roleCtx?.appRole === "provider"
+    );
+  }, [roleCtx]);
+
+  const canAccessProfileScreen =
+    canManageClinicProfile || canManageAvailability;
+
   const canSave = useMemo(() => {
     return (
       cleanText(name).length >= 2 &&
@@ -281,6 +294,20 @@ export default function ProviderProfileScreen() {
       null,
     [doctorRows, selectedCalendarDoctorId],
   );
+
+  const activeCalendarLabel = useMemo(() => {
+    if (canManageStructure) {
+      return selectedCalendarDoctor
+        ? doctorLabel(selectedCalendarDoctor)
+        : "Calendar clinică";
+    }
+
+    return "Calendarul meu";
+  }, [canManageStructure, selectedCalendarDoctor]);
+
+  const activeDoctorIdForAvailability = useMemo(() => {
+    return canManageStructure ? selectedCalendarDoctorId : null;
+  }, [canManageStructure, selectedCalendarDoctorId]);
 
   const hydrateForm = useCallback((p: ProviderMe) => {
     setName(p.name ?? "");
@@ -333,6 +360,14 @@ export default function ProviderProfileScreen() {
     setDoctorRows(structure.doctors ?? []);
   }, [hydrateForm]);
 
+  const loadDoctorData = useCallback(async () => {
+    setProvider(null);
+    setSpecialtyRows([]);
+    setDoctorRows([]);
+    setSelectedCalendarDoctorId(null);
+    setEditing(false);
+  }, []);
+
   const load = useCallback(async () => {
     setRoleBusy(true);
     setBusy(true);
@@ -342,7 +377,7 @@ export default function ProviderProfileScreen() {
       const ctx = await getRoleContext();
       setRoleCtx(ctx);
 
-      if (!ctx.isClinicAdmin && ctx.appRole !== "provider") {
+      if (!ctx.isClinicAdmin && !ctx.isDoctor && ctx.appRole !== "provider") {
         setProvider(null);
         setSpecialtyRows([]);
         setDoctorRows([]);
@@ -352,13 +387,17 @@ export default function ProviderProfileScreen() {
         return;
       }
 
-      await loadClinicAdminData();
+      if (ctx.isClinicAdmin || ctx.appRole === "provider") {
+        await loadClinicAdminData();
+      } else if (ctx.isDoctor) {
+        await loadDoctorData();
+      }
     } catch (e: any) {
       const status = e?.response?.status;
       const detail =
         e?.response?.data?.detail ||
         e?.message ||
-        "Încărcarea profilului clinicii a eșuat";
+        "Încărcarea profilului a eșuat";
 
       setErr(String(detail));
 
@@ -371,7 +410,7 @@ export default function ProviderProfileScreen() {
       setRoleBusy(false);
       setBusy(false);
     }
-  }, [loadClinicAdminData]);
+  }, [loadClinicAdminData, loadDoctorData]);
 
   useEffect(() => {
     load();
@@ -379,15 +418,15 @@ export default function ProviderProfileScreen() {
 
   useEffect(() => {
     if (busy) return;
-    if (!canManageClinicProfile) return;
+    if (!canManageAvailability) return;
 
-    loadAvailabilityData(selectedCalendarDoctorId).catch((e: any) => {
+    loadAvailabilityData(activeDoctorIdForAvailability).catch((e: any) => {
       console.log("[AVAILABILITY LOAD ERROR]", e?.message, e?.response?.data);
     });
   }, [
     busy,
-    canManageClinicProfile,
-    selectedCalendarDoctorId,
+    canManageAvailability,
+    activeDoctorIdForAvailability,
     loadAvailabilityData,
   ]);
 
@@ -820,7 +859,7 @@ export default function ProviderProfileScreen() {
     );
   }
 
-  if (!canManageClinicProfile) {
+  if (!canAccessProfileScreen) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
         <View
@@ -955,7 +994,7 @@ export default function ProviderProfileScreen() {
         }}
       >
         <Text style={{ fontSize: 20, fontWeight: "900", color: COLORS.text }}>
-          Profil clinică
+          {canManageClinicProfile ? "Profil clinică" : "Profil medic"}
         </Text>
 
         <Pressable
@@ -1963,51 +2002,56 @@ export default function ProviderProfileScreen() {
                   gap: 10,
                 }}
               >
-                <Pressable
-                  onPress={() => setSelectedCalendarDoctorId(null)}
-                  style={{
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: COLORS.border,
-                    backgroundColor:
-                      selectedCalendarDoctorId === null ? "#EEF4FF" : "#fff",
-                  }}
-                >
-                  <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                    Calendar clinică
-                  </Text>
-                </Pressable>
-
-                {doctorRows.map((doctor) => {
-                  const active = selectedCalendarDoctorId === doctor.id;
-                  return (
+                {canManageStructure ? (
+                  <>
                     <Pressable
-                      key={doctor.id}
-                      onPress={() => setSelectedCalendarDoctorId(doctor.id)}
+                      onPress={() => setSelectedCalendarDoctorId(null)}
                       style={{
                         paddingVertical: 10,
                         paddingHorizontal: 12,
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: COLORS.border,
-                        backgroundColor: active ? "#EEF4FF" : "#fff",
+                        backgroundColor:
+                          selectedCalendarDoctorId === null
+                            ? "#EEF4FF"
+                            : "#fff",
                       }}
                     >
                       <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                        {doctorLabel(doctor)}
+                        Calendar clinică
                       </Text>
                     </Pressable>
-                  );
-                })}
+
+                    {doctorRows.map((doctor) => {
+                      const active = selectedCalendarDoctorId === doctor.id;
+                      return (
+                        <Pressable
+                          key={doctor.id}
+                          onPress={() => setSelectedCalendarDoctorId(doctor.id)}
+                          style={{
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: COLORS.border,
+                            backgroundColor: active ? "#EEF4FF" : "#fff",
+                          }}
+                        >
+                          <Text
+                            style={{ fontWeight: "900", color: COLORS.text }}
+                          >
+                            {doctorLabel(doctor)}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </>
+                ) : null}
               </View>
 
               <Text style={{ marginTop: 12, color: COLORS.muted }}>
-                Vizualizare activă:{" "}
-                {selectedCalendarDoctor
-                  ? doctorLabel(selectedCalendarDoctor)
-                  : "Calendar clinică"}
+                Vizualizare activă: {activeCalendarLabel}
               </Text>
 
               <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
@@ -2189,7 +2233,6 @@ export default function ProviderProfileScreen() {
                 </View>
               </View>
             </View>
-
             <View
               style={{
                 backgroundColor: COLORS.card,
