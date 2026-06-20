@@ -65,8 +65,9 @@ export default function RegisterChooseRole() {
           <Text style={{ fontSize: 16, fontWeight: "900", color: COLORS.text }}>
             Ce tip de cont dorești?
           </Text>
+
           <Text style={{ marginTop: 6, color: COLORS.muted }}>
-            Alege dacă te înregistrezi ca pacient sau ca furnizor medical.
+            Alege dacă te înregistrezi ca pacient sau ca Clinic/Medic.
           </Text>
 
           <Pressable
@@ -81,7 +82,7 @@ export default function RegisterChooseRole() {
             }}
           >
             <Text style={{ color: "#fff", fontWeight: "900" }}>
-              Înregistrare pacient
+              Înregistrare ca pacient
             </Text>
           </Pressable>
 
@@ -99,7 +100,7 @@ export default function RegisterChooseRole() {
             }}
           >
             <Text style={{ color: COLORS.text, fontWeight: "900" }}>
-              Înregistrare furnizor
+              Clinic/Medic
             </Text>
           </Pressable>
         </View>

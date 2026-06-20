@@ -22,14 +22,23 @@ export type RoleContext = {
   hasClinicalAccess: boolean;
   canSeeOrganizationTools: boolean;
   canManageProviderProfile: boolean;
+  providerDoctorId: number | null;
+  provider_doctor_id: number | null;
+  clinicId: number | null;
+  clinic_id: number | null;
 };
 
 type MembershipLike = {
+  id?: number | null;
   role?: string | null;
   clinic_role?: string | null;
   staff_role?: string | null;
   type?: string | null;
   is_active?: boolean | null;
+  clinic_id?: number | null;
+  clinicId?: number | null;
+  provider_doctor_id?: number | null;
+  providerDoctorId?: number | null;
 };
 
 type MeLike = {
@@ -41,6 +50,10 @@ type MeLike = {
   membership_role?: string | null;
   staff_role?: string | null;
   provider_role?: string | null;
+  clinic_id?: number | null;
+  clinicId?: number | null;
+  provider_doctor_id?: number | null;
+  providerDoctorId?: number | null;
   clinic_memberships?: MembershipLike[] | null;
   memberships?: MembershipLike[] | null;
 };
@@ -62,12 +75,32 @@ function normalizeRole(raw?: string | null): ClinicRole {
   return "unknown";
 }
 
+function getMemberships(me: MeLike | null | undefined): MembershipLike[] {
+  if (!me) return [];
+
+  if (Array.isArray(me.clinic_memberships)) {
+    return me.clinic_memberships;
+  }
+
+  if (Array.isArray(me.memberships)) {
+    return me.memberships;
+  }
+
+  return [];
+}
+
+function getActiveMembership(
+  me: MeLike | null | undefined,
+): MembershipLike | null {
+  const memberships = getMemberships(me);
+  return memberships.find((m) => m?.is_active) ?? memberships[0] ?? null;
+}
+
 function extractMembershipRole(
   me: MeLike | null | undefined,
 ): ClinicRole | null {
   if (!me) return null;
 
-  // 1) Először az explicit clinic/staff role mezőket nézzük
   const explicitClinicCandidates = [
     me.clinic_role,
     me.active_clinic_role,
@@ -81,15 +114,7 @@ function extractMembershipRole(
     if (role !== "unknown") return role;
   }
 
-  // 2) Utána a membership listát nézzük
-  const memberships = Array.isArray(me.clinic_memberships)
-    ? me.clinic_memberships
-    : Array.isArray(me.memberships)
-      ? me.memberships
-      : [];
-
-  const activeMembership =
-    memberships.find((m) => m?.is_active) ?? memberships[0] ?? null;
+  const activeMembership = getActiveMembership(me);
 
   if (activeMembership) {
     const membershipCandidates = [
@@ -105,7 +130,6 @@ function extractMembershipRole(
     }
   }
 
-  // 3) Csak legvégén essen vissza a globális user role-ra
   const fallbackCandidates = [me.role, me.user_role, me.type];
 
   for (const candidate of fallbackCandidates) {
@@ -114,6 +138,55 @@ function extractMembershipRole(
   }
 
   return null;
+}
+
+function extractProviderDoctorId(me: MeLike | null | undefined): number | null {
+  if (!me) return null;
+
+  const direct = me.provider_doctor_id ?? me.providerDoctorId ?? null;
+  if (typeof direct === "number") return direct;
+
+  const activeMembership = getActiveMembership(me);
+  const fromMembership =
+    activeMembership?.provider_doctor_id ??
+    activeMembership?.providerDoctorId ??
+    null;
+
+  if (typeof fromMembership === "number") return fromMembership;
+
+  const doctorMembership = getMemberships(me).find((membership) => {
+    const role = normalizeRole(
+      membership.role ??
+        membership.clinic_role ??
+        membership.staff_role ??
+        membership.type,
+    );
+
+    const providerDoctorId =
+      membership.provider_doctor_id ?? membership.providerDoctorId ?? null;
+
+    return role === "doctor" && typeof providerDoctorId === "number";
+  });
+
+  const providerDoctorId =
+    doctorMembership?.provider_doctor_id ??
+    doctorMembership?.providerDoctorId ??
+    null;
+
+  return typeof providerDoctorId === "number" ? providerDoctorId : null;
+}
+
+function extractClinicId(me: MeLike | null | undefined): number | null {
+  if (!me) return null;
+
+  const direct = me.clinic_id ?? me.clinicId ?? null;
+  if (typeof direct === "number") return direct;
+
+  const activeMembership = getActiveMembership(me);
+  const fromMembership =
+    activeMembership?.clinic_id ?? activeMembership?.clinicId ?? null;
+
+  return typeof fromMembership === "number" ? fromMembership : null;
 }
 
 function roleLabelRo(appRole: ClinicRole) {
@@ -130,6 +203,7 @@ function roleLabelRo(appRole: ClinicRole) {
 export async function getRoleContext(): Promise<RoleContext> {
   try {
     const me = (await fetchMe()) as MeLike;
+
     const appRole =
       extractMembershipRole(me) ?? normalizeRole(me?.role) ?? "unknown";
 
@@ -144,6 +218,9 @@ export async function getRoleContext(): Promise<RoleContext> {
     const canSeeOrganizationTools = isClinicAdmin;
     const canManageProviderProfile = isClinicAdmin || appRole === "provider";
 
+    const providerDoctorId = extractProviderDoctorId(me);
+    const clinicId = extractClinicId(me);
+
     return {
       appRole,
       labelRo: roleLabelRo(appRole),
@@ -154,6 +231,10 @@ export async function getRoleContext(): Promise<RoleContext> {
       hasClinicalAccess,
       canSeeOrganizationTools,
       canManageProviderProfile,
+      providerDoctorId,
+      provider_doctor_id: providerDoctorId,
+      clinicId,
+      clinic_id: clinicId,
     };
   } catch {
     return {
@@ -166,6 +247,10 @@ export async function getRoleContext(): Promise<RoleContext> {
       hasClinicalAccess: false,
       canSeeOrganizationTools: false,
       canManageProviderProfile: false,
+      providerDoctorId: null,
+      provider_doctor_id: null,
+      clinicId: null,
+      clinic_id: null,
     };
   }
 }

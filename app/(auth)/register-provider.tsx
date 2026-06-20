@@ -471,7 +471,7 @@ export default function RegisterProviderScreen() {
         </Pressable>
 
         <Text style={{ fontSize: 18, fontWeight: "900", color: COLORS.text }}>
-          Înregistrare furnizor
+          Înregistrare Clinic/Medic
         </Text>
 
         <View style={{ width: 60 }} />
@@ -528,7 +528,7 @@ export default function RegisterProviderScreen() {
             }}
           />
 
-          <FieldLabel required>Tip furnizor</FieldLabel>
+          <FieldLabel required>Tip profil</FieldLabel>
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Pressable
               onPress={() => setProviderType("clinic")}
@@ -579,7 +579,7 @@ export default function RegisterProviderScreen() {
             </Pressable>
           </View>
 
-          <FieldLabel required>Nume clinică / furnizor</FieldLabel>
+          <FieldLabel required>Nume clinică / Medic </FieldLabel>
           <TextInput
             value={name}
             onChangeText={setName}
