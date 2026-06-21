@@ -377,10 +377,12 @@ export default function RegisterProviderScreen() {
         await registerProvider(payload);
       }
 
-      router.replace({
-        pathname: "/(auth)/check-email",
-        params: { email: payload.email },
-      });
+      Alert.alert(
+        "Cerere trimisă",
+        "Contul Clinic/Medic a fost creat și este în așteptarea aprobării de către administratorul MediCalend. Vei putea intra în aplicație după aprobare.",
+      );
+
+      router.replace("/(auth)/login");
     } catch (e: any) {
       const msg = extractApiError(e);
       setError(msg);
@@ -1101,9 +1103,10 @@ export default function RegisterProviderScreen() {
           </Pressable>
 
           <Text style={{ marginTop: 10, color: COLORS.muted, fontSize: 12 }}>
-            După înregistrare, vei primi un e-mail de confirmare. După
-            confirmarea e-mailului, contul furnizorului poate rămâne în
-            așteptare până la aprobarea de către administrator.
+            După înregistrare, cererea va fi trimisă pentru verificare. Un
+            administrator MediCalend va analiza documentele și va aproba sau
+            respinge solicitarea. Vei primi o notificare după finalizarea
+            verificării.
           </Text>
         </View>
       </ScrollView>
