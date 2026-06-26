@@ -43,6 +43,8 @@ const COLORS = {
   softGreen: "#ECFDF5",
   softAmber: "#FFFBEB",
   softRed: "#FEF2F2",
+  softPurple: "#F3E8FF",
+  softCyan: "#ECFEFF",
   softGray: "#F8FAFC",
 };
 
@@ -64,6 +66,12 @@ type UnifiedEvent = {
   appointmentId?: number | null;
 };
 
+type EventGroup = {
+  key: string;
+  label: string;
+  events: UnifiedEvent[];
+};
+
 function fmt(iso?: string | null) {
   if (!iso) return "-";
 
@@ -80,18 +88,59 @@ function fmt(iso?: string | null) {
   }
 }
 
-function shortDate(iso?: string | null) {
-  if (!iso) return "-";
+function longDate(iso?: string | null) {
+  if (!iso) return "Fără dată";
 
   try {
     return new Date(iso).toLocaleDateString("ro-RO", {
       day: "2-digit",
-      month: "short",
+      month: "long",
       year: "numeric",
     });
   } catch {
     return iso;
   }
+}
+
+function timeOnly(iso?: string | null) {
+  if (!iso) return "Oră nespecificată";
+
+  try {
+    return new Date(iso).toLocaleTimeString("ro-RO", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "Oră nespecificată";
+  }
+}
+
+function dateKey(iso?: string | null) {
+  if (!iso) return "unknown";
+
+  try {
+    return new Date(iso).toISOString().slice(0, 10);
+  } catch {
+    return iso || "unknown";
+  }
+}
+
+function isFutureDate(iso?: string | null) {
+  if (!iso) return false;
+
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  return parsed.getTime() > Date.now();
+}
+
+function isCompletedStatus(status?: string | null) {
+  return (
+    status === "completed" ||
+    status === "done" ||
+    status === "closed" ||
+    status === "archived"
+  );
 }
 
 function episodeStatusLabel(status?: string | null) {
@@ -190,45 +239,57 @@ function kindMeta(kind: UnifiedEventKind) {
   switch (kind) {
     case "appointment":
       return {
+        icon: "📅",
         label: "Programare",
         bg: COLORS.softBlue,
         text: COLORS.primary,
         dot: COLORS.primary,
+        border: COLORS.primary,
       };
     case "document":
       return {
-        label: "PDF",
-        bg: COLORS.softGreen,
-        text: COLORS.success,
-        dot: COLORS.success,
+        icon: "📄",
+        label: "Document",
+        bg: COLORS.softPurple,
+        text: "#7C3AED",
+        dot: "#7C3AED",
+        border: "#7C3AED",
       };
     case "note":
       return {
+        icon: "📝",
         label: "Notă",
-        bg: COLORS.softGray,
-        text: COLORS.muted,
-        dot: COLORS.muted,
+        bg: COLORS.softAmber,
+        text: "#F97316",
+        dot: "#F97316",
+        border: "#F97316",
       };
     case "task":
       return {
+        icon: "✅",
         label: "Sarcină",
-        bg: COLORS.softAmber,
-        text: COLORS.warning,
-        dot: COLORS.warning,
+        bg: COLORS.softGreen,
+        text: COLORS.success,
+        dot: COLORS.success,
+        border: COLORS.success,
       };
     case "referral":
       return {
+        icon: "🔄",
         label: "Trimitere",
-        bg: COLORS.softBlueStrong,
-        text: COLORS.primaryDark,
-        dot: COLORS.primaryDark,
+        bg: COLORS.softCyan,
+        text: "#0891B2",
+        dot: "#0891B2",
+        border: "#0891B2",
       };
     default:
       return {
+        icon: "•",
         label: "Eveniment",
         bg: COLORS.softGray,
         text: COLORS.muted,
         dot: COLORS.muted,
+        border: COLORS.border,
       };
   }
 }
@@ -301,7 +362,6 @@ function EmptyCard({ title, subtitle }: { title: string; subtitle: string }) {
 
 function appointmentTitle(a: { notes?: string | null }) {
   if (a.notes?.trim()) return a.notes.trim();
-
   return "Consultație medicală";
 }
 
@@ -317,6 +377,64 @@ function providerLabelFromAppointment(a: {
   if (a.provider_name?.trim()) return a.provider_name.trim();
 
   return "Clinică / specialist";
+}
+
+function groupEventsByDate(events: UnifiedEvent[]): EventGroup[] {
+  const map = new Map<string, EventGroup>();
+
+  for (const ev of events) {
+    const key = dateKey(ev.at);
+    const label = longDate(ev.at);
+
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        label,
+        events: [],
+      });
+    }
+
+    map.get(key)?.events.push(ev);
+  }
+
+  return Array.from(map.values());
+}
+
+function completedProgress(events: UnifiedEvent[]) {
+  const total = events.length;
+
+  if (total === 0) {
+    return {
+      total,
+      completed: 0,
+      future: 0,
+      percent: 0,
+    };
+  }
+
+  const completed = events.filter((ev) => {
+    if (ev.kind === "document" || ev.kind === "note") return true;
+    return isCompletedStatus(ev.status);
+  }).length;
+
+  const future = events.filter((ev) => isFutureDate(ev.at)).length;
+
+  return {
+    total,
+    completed,
+    future,
+    percent: Math.round((completed / total) * 100),
+  };
+}
+
+function eventStatusLabel(ev: UnifiedEvent) {
+  if (!ev.status) return null;
+
+  if (ev.kind === "appointment") return appointmentStatusLabel(ev.status);
+  if (ev.kind === "task") return taskStatusLabel(ev.status);
+  if (ev.kind === "referral") return referralStatusLabel(ev.status);
+
+  return ev.status;
 }
 
 export default function PatientEpisodeScreen() {
@@ -400,7 +518,7 @@ export default function PatientEpisodeScreen() {
       kind: "note",
       at: n.created_at,
       id: n.id,
-      title: "Notă",
+      title: "Notă de coordonare",
       subtitle: n.text,
       status: null,
     }));
@@ -429,8 +547,17 @@ export default function PatientEpisodeScreen() {
       ...noteEvents,
       ...taskEvents,
       ...referralEvents,
-    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    ].sort((a, b) => {
+      const aTime = a.at ? new Date(a.at).getTime() : 0;
+      const bTime = b.at ? new Date(b.at).getTime() : 0;
+      return bTime - aTime;
+    });
   }, [appointments, data, documents, notes, referrals, tasks]);
+
+  const eventGroups = useMemo(() => groupEventsByDate(events), [events]);
+  const progress = useMemo(() => completedProgress(events), [events]);
+
+  const latestEvent = useMemo(() => events[0] ?? null, [events]);
 
   const stats = useMemo(
     () => [
@@ -544,7 +671,7 @@ export default function PatientEpisodeScreen() {
               color: COLORS.text,
             }}
           >
-            Episod #{Number.isFinite(episodeId) ? episodeId : "?"}
+            Journey episod
           </Text>
 
           <Pressable
@@ -666,7 +793,7 @@ export default function PatientEpisodeScreen() {
                   fontSize: 13,
                 }}
               >
-                JOURNEY EPISOD
+                PATIENT JOURNEY
               </Text>
 
               <Text
@@ -696,9 +823,124 @@ export default function PatientEpisodeScreen() {
                   lineHeight: 21,
                 }}
               >
-                Acest ecran organizează evenimentele episodului: programări,
-                fișiere PDF atașate, note și sarcini. Documentele sunt păstrate
-                ca fișiere, fără interpretare medicală automată.
+                Istoricul episodului este afișat obiectiv: programări,
+                documente, note, sarcini și trimiteri. MediCalend nu
+                interpretează documentele și nu prezice pașii medicali următori.
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 22,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              gap: 14,
+            }}
+          >
+            <SectionTitle
+              title="Rezumat Journey"
+              subtitle="O vedere rapidă asupra episodului, bazată doar pe datele existente."
+            />
+
+            <View
+              style={{
+                borderRadius: 18,
+                backgroundColor: COLORS.softBlue,
+                padding: 14,
+              }}
+            >
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  fontSize: 26,
+                }}
+              >
+                {progress.percent}%
+              </Text>
+              <Text
+                style={{
+                  marginTop: 4,
+                  color: COLORS.muted,
+                  lineHeight: 20,
+                }}
+              >
+                {progress.completed} evenimente finalizate din {progress.total}
+              </Text>
+
+              <View
+                style={{
+                  height: 10,
+                  borderRadius: 999,
+                  backgroundColor: "rgba(148,163,184,0.26)",
+                  overflow: "hidden",
+                  marginTop: 12,
+                }}
+              >
+                <View
+                  style={{
+                    width: `${progress.percent}%`,
+                    height: "100%",
+                    borderRadius: 999,
+                    backgroundColor: COLORS.primary,
+                  }}
+                />
+              </View>
+            </View>
+
+            <View
+              style={{
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "#fff",
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                Ultimul eveniment
+              </Text>
+              <Text
+                style={{
+                  marginTop: 6,
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  lineHeight: 21,
+                }}
+              >
+                {latestEvent
+                  ? `${kindMeta(latestEvent.kind).label} • ${latestEvent.title}`
+                  : "Nu există evenimente încă"}
+              </Text>
+              <Text style={{ marginTop: 6, color: COLORS.muted }}>
+                {latestEvent ? fmt(latestEvent.at) : "-"}
+              </Text>
+            </View>
+
+            <View
+              style={{
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                backgroundColor: "#fff",
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
+                Evenimente viitoare înregistrate
+              </Text>
+              <Text
+                style={{
+                  marginTop: 6,
+                  color: COLORS.text,
+                  fontWeight: "900",
+                  fontSize: 22,
+                }}
+              >
+                {progress.future}
               </Text>
             </View>
           </View>
@@ -771,6 +1013,207 @@ export default function PatientEpisodeScreen() {
                 {uploading ? "Se încarcă PDF..." : "Încarcă document PDF"}
               </Text>
             </Pressable>
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 22,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              gap: 12,
+            }}
+          >
+            <SectionTitle
+              title="Timeline vizual"
+              subtitle="Evenimente grupate pe date, de la cele mai recente la cele mai vechi."
+            />
+
+            {eventGroups.length === 0 ? (
+              <EmptyCard
+                title="Nu există evenimente"
+                subtitle="Când apar programări, documente sau note, vor fi afișate aici."
+              />
+            ) : (
+              <View style={{ gap: 18 }}>
+                {eventGroups.map((group) => (
+                  <View key={group.key}>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        marginBottom: 10,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: 999,
+                          backgroundColor: COLORS.primary,
+                        }}
+                      />
+                      <Text
+                        style={{
+                          color: COLORS.text,
+                          fontWeight: "900",
+                          fontSize: 16,
+                        }}
+                      >
+                        {group.label}
+                      </Text>
+                      <View
+                        style={{
+                          flex: 1,
+                          height: 1,
+                          backgroundColor: COLORS.border,
+                        }}
+                      />
+                    </View>
+
+                    <View
+                      style={{
+                        borderLeftWidth: 2,
+                        borderLeftColor: COLORS.border,
+                        paddingLeft: 14,
+                        gap: 10,
+                      }}
+                    >
+                      {group.events.map((ev) => {
+                        const meta = kindMeta(ev.kind);
+                        const evStatusLabel = eventStatusLabel(ev);
+                        const evStatusMeta = statusMeta(ev.status);
+                        const future = isFutureDate(ev.at);
+
+                        return (
+                          <View
+                            key={`${ev.kind}-${ev.id}`}
+                            style={{
+                              position: "relative",
+                              borderRadius: 18,
+                              borderWidth: 1,
+                              borderColor: COLORS.border,
+                              borderLeftWidth: 4,
+                              borderLeftColor: meta.border,
+                              backgroundColor:
+                                future && ev.kind === "appointment"
+                                  ? COLORS.softBlue
+                                  : "#fff",
+                              padding: 14,
+                            }}
+                          >
+                            <View
+                              style={{
+                                position: "absolute",
+                                left: -24,
+                                top: 20,
+                                width: 14,
+                                height: 14,
+                                borderRadius: 999,
+                                backgroundColor: meta.dot,
+                                borderWidth: 3,
+                                borderColor: "#fff",
+                              }}
+                            />
+
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                alignItems: "flex-start",
+                              }}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Pill
+                                  label={`${meta.icon} ${meta.label}`}
+                                  bg={meta.bg}
+                                  color={meta.text}
+                                />
+
+                                <Text
+                                  style={{
+                                    marginTop: 10,
+                                    color: COLORS.text,
+                                    fontWeight: "900",
+                                    fontSize: 15,
+                                    lineHeight: 21,
+                                  }}
+                                >
+                                  {ev.title}
+                                </Text>
+
+                                <Text
+                                  style={{
+                                    marginTop: 6,
+                                    color: COLORS.muted,
+                                    fontWeight: "800",
+                                  }}
+                                >
+                                  {timeOnly(ev.at)}
+                                </Text>
+                              </View>
+
+                              <View style={{ gap: 6, alignItems: "flex-end" }}>
+                                {future ? (
+                                  <Pill
+                                    label="Viitor"
+                                    bg={COLORS.softAmber}
+                                    color={COLORS.warning}
+                                  />
+                                ) : null}
+
+                                {evStatusLabel ? (
+                                  <Pill
+                                    label={evStatusLabel}
+                                    bg={evStatusMeta.bg}
+                                    color={evStatusMeta.text}
+                                  />
+                                ) : null}
+                              </View>
+                            </View>
+
+                            {ev.subtitle ? (
+                              <Text
+                                style={{
+                                  marginTop: 10,
+                                  color: COLORS.text,
+                                  lineHeight: 20,
+                                }}
+                              >
+                                {ev.subtitle}
+                              </Text>
+                            ) : null}
+
+                            {ev.kind === "document" ? (
+                              <Pressable
+                                onPress={() => openPdf(ev.fileUrl)}
+                                style={{
+                                  marginTop: 12,
+                                  height: 40,
+                                  borderRadius: 13,
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  backgroundColor: COLORS.primary,
+                                }}
+                              >
+                                <Text
+                                  style={{ color: "#fff", fontWeight: "900" }}
+                                >
+                                  Deschide PDF
+                                </Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           <View
@@ -933,166 +1376,6 @@ export default function PatientEpisodeScreen() {
                     </Pressable>
                   </View>
                 ))}
-              </View>
-            )}
-          </View>
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 22,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              gap: 12,
-            }}
-          >
-            <SectionTitle
-              title="Timeline vizual"
-              subtitle="Evenimentele episodului sunt afișate cronologic, de la cele mai recente la cele mai vechi."
-            />
-
-            {events.length === 0 ? (
-              <EmptyCard
-                title="Nu există evenimente"
-                subtitle="Când apar programări, documente sau note, vor fi afișate aici."
-              />
-            ) : (
-              <View style={{ gap: 0 }}>
-                {events.map((ev, index) => {
-                  const meta = kindMeta(ev.kind);
-                  const eventStatusMeta = statusMeta(ev.status);
-
-                  return (
-                    <View
-                      key={`${ev.kind}-${ev.id}`}
-                      style={{
-                        flexDirection: "row",
-                        gap: 12,
-                      }}
-                    >
-                      <View style={{ alignItems: "center", width: 22 }}>
-                        <View
-                          style={{
-                            width: 14,
-                            height: 14,
-                            borderRadius: 999,
-                            backgroundColor: meta.dot,
-                            marginTop: 18,
-                          }}
-                        />
-                        {index < events.length - 1 ? (
-                          <View
-                            style={{
-                              width: 2,
-                              flex: 1,
-                              minHeight: 46,
-                              backgroundColor: COLORS.border,
-                              marginTop: 4,
-                            }}
-                          />
-                        ) : null}
-                      </View>
-
-                      <View
-                        style={{
-                          flex: 1,
-                          borderRadius: 18,
-                          borderWidth: 1,
-                          borderColor: COLORS.border,
-                          backgroundColor: "#fff",
-                          padding: 14,
-                          marginBottom: 10,
-                        }}
-                      >
-                        <View
-                          style={{
-                            flexDirection: "row",
-                            justifyContent: "space-between",
-                            gap: 10,
-                            alignItems: "flex-start",
-                          }}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={{
-                                color: COLORS.text,
-                                fontWeight: "900",
-                                fontSize: 15,
-                                lineHeight: 21,
-                              }}
-                            >
-                              {ev.title}
-                            </Text>
-
-                            <Text
-                              style={{
-                                marginTop: 5,
-                                color: COLORS.muted,
-                                fontSize: 13,
-                              }}
-                            >
-                              {shortDate(ev.at)}
-                            </Text>
-                          </View>
-
-                          <View style={{ gap: 6, alignItems: "flex-end" }}>
-                            <Pill
-                              label={meta.label}
-                              bg={meta.bg}
-                              color={meta.text}
-                            />
-                            {ev.status ? (
-                              <Pill
-                                label={
-                                  ev.kind === "appointment"
-                                    ? appointmentStatusLabel(ev.status)
-                                    : ev.kind === "task"
-                                      ? taskStatusLabel(ev.status)
-                                      : ev.kind === "referral"
-                                        ? referralStatusLabel(ev.status)
-                                        : ev.status
-                                }
-                                bg={eventStatusMeta.bg}
-                                color={eventStatusMeta.text}
-                              />
-                            ) : null}
-                          </View>
-                        </View>
-
-                        {ev.subtitle ? (
-                          <Text
-                            style={{
-                              marginTop: 10,
-                              color: COLORS.text,
-                              lineHeight: 20,
-                            }}
-                          >
-                            {ev.subtitle}
-                          </Text>
-                        ) : null}
-
-                        {ev.kind === "document" ? (
-                          <Pressable
-                            onPress={() => openPdf(ev.fileUrl)}
-                            style={{
-                              marginTop: 12,
-                              height: 40,
-                              borderRadius: 13,
-                              alignItems: "center",
-                              justifyContent: "center",
-                              backgroundColor: COLORS.primary,
-                            }}
-                          >
-                            <Text style={{ color: "#fff", fontWeight: "900" }}>
-                              Deschide PDF
-                            </Text>
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
-                  );
-                })}
               </View>
             )}
           </View>
