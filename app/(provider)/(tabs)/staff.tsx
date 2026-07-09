@@ -1,5 +1,7 @@
 // Path: medicalend-mobile/app/(provider)/(tabs)/staff.tsx
-import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -317,8 +319,10 @@ function DoctorPicker({
             padding: 12,
           }}
         >
-          <Text style={{ color: COLORS.muted }}>
-            Nu există încă medici definiți în structura clinicii.
+          <Text style={{ color: COLORS.muted, lineHeight: 20 }}>
+            Nu există încă medici definiți în structura clinicii. Creează mai
+            întâi medicul în profilul clinicii, apoi revino aici și apasă
+            Reîncarcă.
           </Text>
         </View>
       ) : (
@@ -332,7 +336,7 @@ function DoctorPicker({
                 minHeight: 48,
                 borderRadius: 12,
                 borderWidth: 1,
-                borderColor: COLORS.border,
+                borderColor: active ? COLORS.primary : COLORS.border,
                 backgroundColor: active ? COLORS.softBlue : "#fff",
                 justifyContent: "center",
                 paddingHorizontal: 12,
@@ -589,9 +593,11 @@ export default function ProviderStaffScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
 
   const sortedItems = useMemo(() => {
     return [...items].sort((a, b) => a.email.localeCompare(b.email));
@@ -612,13 +618,16 @@ export default function ProviderStaffScreen() {
     [items],
   );
 
-  function openCreate() {
+  async function openCreate() {
     setCreateEmail("");
     setCreatePassword("");
     setCreateRole("doctor");
-    setCreateDoctorId(doctors.length > 0 ? doctors[0].id : null);
+    setCreateDoctorId(null);
     setCreateDisplayName("");
     setCreateActive(true);
+
+    await load();
+
     setCreateOpen(true);
   }
 
@@ -640,9 +649,7 @@ export default function ProviderStaffScreen() {
       return;
     }
 
-    setCreateDoctorId(
-      (prev) => prev ?? (doctors.length > 0 ? doctors[0].id : null),
-    );
+    setCreateDoctorId(null);
   }
 
   function handleEditRoleChange(next: ClinicStaffRole) {
@@ -653,9 +660,7 @@ export default function ProviderStaffScreen() {
       return;
     }
 
-    setEditDoctorId(
-      (prev) => prev ?? (doctors.length > 0 ? doctors[0].id : null),
-    );
+    setEditDoctorId(null);
   }
 
   async function handleCreate() {
@@ -687,7 +692,7 @@ export default function ProviderStaffScreen() {
     if (createRole === "doctor" && !createDoctorId) {
       Alert.alert(
         "Date lipsă",
-        "Pentru rolul de medic trebuie să selectezi un medic din structura clinicii.",
+        "Selectează medicul exact din structura clinicii. Nu asociem automat un medic pentru a evita legarea contului de profilul greșit.",
       );
       return;
     }
@@ -742,7 +747,7 @@ export default function ProviderStaffScreen() {
     if (editRole === "doctor" && !editDoctorId) {
       Alert.alert(
         "Date lipsă",
-        "Pentru rolul de medic trebuie să selectezi un medic din structura clinicii.",
+        "Selectează medicul exact din structura clinicii. Nu asociem automat un medic pentru a evita legarea contului de profilul greșit.",
       );
       return;
     }
@@ -916,7 +921,9 @@ export default function ProviderStaffScreen() {
           />
 
           <Pressable
-            onPress={openCreate}
+            onPress={() => {
+              void openCreate();
+            }}
             style={{
               height: 48,
               borderRadius: 14,
@@ -1053,7 +1060,7 @@ export default function ProviderStaffScreen() {
               <TextInput
                 value={createDisplayName}
                 onChangeText={setCreateDisplayName}
-                placeholder="Ex.: As. med. Maria Popescu"
+                placeholder="Ex.: Dr. Andrei Popescu"
                 editable={!submitBusy}
                 style={{
                   height: 48,
@@ -1068,7 +1075,7 @@ export default function ProviderStaffScreen() {
               <Text
                 style={{ marginTop: 6, color: COLORS.muted, lineHeight: 19 }}
               >
-                Acest nume va fi afișat pacientului în programările Home Care.
+                Acest nume va fi afișat pacientului în programări și în Journey.
                 Pentru asistenți este obligatoriu.
               </Text>
 
@@ -1202,7 +1209,7 @@ export default function ProviderStaffScreen() {
               <TextInput
                 value={editDisplayName}
                 onChangeText={setEditDisplayName}
-                placeholder="Ex.: As. med. Maria Popescu"
+                placeholder="Ex.: Dr. Andrei Popescu"
                 editable={!submitBusy}
                 style={{
                   height: 48,
@@ -1217,7 +1224,7 @@ export default function ProviderStaffScreen() {
               <Text
                 style={{ marginTop: 6, color: COLORS.muted, lineHeight: 19 }}
               >
-                Acest nume va fi afișat pacientului în programările Home Care.
+                Acest nume va fi afișat pacientului în programări și în Journey.
                 Pentru asistenți este obligatoriu.
               </Text>
 
