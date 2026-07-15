@@ -1,3 +1,5 @@
+// Path: medicalend-mobile/app/(provider)/(tabs)/episodes.tsx
+
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -43,13 +45,23 @@ type EpisodeRow = {
   created_at: string;
   patient_id: number;
   owner_provider_id: number;
+  patient_name?: string | null;
+  owner_provider_name?: string | null;
 };
 
 type FilterMode = "all" | "owned" | "referred";
 
-function fmt(iso: string) {
+function fmt(iso?: string | null) {
+  if (!iso) return "Dată nespecificată";
+
   try {
-    return new Date(iso).toLocaleString("ro-RO", {
+    const parsed = new Date(iso);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return iso;
+    }
+
+    return parsed.toLocaleString("ro-RO", {
       day: "2-digit",
       month: "long",
       year: "numeric",
@@ -61,10 +73,44 @@ function fmt(iso: string) {
   }
 }
 
-function statusMeta(status: string) {
-  const s = String(status || "").toLowerCase();
+function cleanText(value?: string | null) {
+  return String(value ?? "").trim();
+}
 
-  if (s === "open" || s === "active") {
+function episodePatientName(episode: EpisodeRow) {
+  const name = cleanText(episode.patient_name);
+
+  if (name) {
+    return name;
+  }
+
+  return `Pacient #${episode.patient_id}`;
+}
+
+function episodeProviderName(episode: EpisodeRow) {
+  const name = cleanText(episode.owner_provider_name);
+
+  if (name) {
+    return name;
+  }
+
+  return `Furnizor #${episode.owner_provider_id}`;
+}
+
+function episodeTitle(episode: EpisodeRow) {
+  const title = cleanText(episode.title);
+
+  if (title) {
+    return title;
+  }
+
+  return `Episod medical pentru ${episodePatientName(episode)}`;
+}
+
+function statusMeta(status: string) {
+  const normalizedStatus = String(status || "").toLowerCase();
+
+  if (normalizedStatus === "open" || normalizedStatus === "active") {
     return {
       label: "Activ",
       bg: COLORS.softGreen,
@@ -72,7 +118,7 @@ function statusMeta(status: string) {
     };
   }
 
-  if (s === "in_progress") {
+  if (normalizedStatus === "in_progress") {
     return {
       label: "În desfășurare",
       bg: COLORS.softBlue,
@@ -80,15 +126,31 @@ function statusMeta(status: string) {
     };
   }
 
-  if (s === "closed" || s === "completed" || s === "archived") {
+  if (normalizedStatus === "completed") {
     return {
-      label: String(status || "").replaceAll("_", " "),
+      label: "Finalizat",
       bg: COLORS.softGray,
       text: COLORS.muted,
     };
   }
 
-  if (s === "canceled") {
+  if (normalizedStatus === "closed") {
+    return {
+      label: "Închis",
+      bg: COLORS.softGray,
+      text: COLORS.muted,
+    };
+  }
+
+  if (normalizedStatus === "archived") {
+    return {
+      label: "Arhivat",
+      bg: COLORS.softGray,
+      text: COLORS.muted,
+    };
+  }
+
+  if (normalizedStatus === "canceled") {
     return {
       label: "Anulat",
       bg: COLORS.softRed,
@@ -104,25 +166,32 @@ function statusMeta(status: string) {
 }
 
 function filterTitle(mode: FilterMode) {
-  if (mode === "owned") return "Episoadele mele";
-  if (mode === "referred") return "Episoade referral";
+  if (mode === "owned") return "Episoadele clinicii";
+  if (mode === "referred") return "Episoade primite prin trimitere";
   return "Toate episoadele";
 }
 
 function filterDescription(mode: FilterMode) {
   if (mode === "owned") {
-    return "Vezi episoadele în care clinica sau furnizorul tău este owner principal.";
+    return "Vezi episoadele în care clinica sau furnizorul tău este responsabilul principal.";
   }
+
   if (mode === "referred") {
-    return "Vezi episoadele venite prin referral sau accesibile indirect.";
+    return "Vezi episoadele accesibile printr-o trimitere sau printr-o altă relație de îngrijire.";
   }
-  return "Ai o privire completă asupra episoadelor disponibile pentru contul curent.";
+
+  return "Ai o imagine completă asupra episoadelor disponibile pentru contul curent.";
 }
 
 function emptyMessage(mode: FilterMode) {
-  if (mode === "owned") return "Nu există episoade proprii în acest moment.";
-  if (mode === "referred")
-    return "Nu există episoade referral în acest moment.";
+  if (mode === "owned") {
+    return "Nu există episoade proprii în acest moment.";
+  }
+
+  if (mode === "referred") {
+    return "Nu există episoade primite prin trimitere în acest moment.";
+  }
+
   return "Nu există episoade disponibile.";
 }
 
@@ -147,9 +216,16 @@ function SectionHeader({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 18, fontWeight: "900", color: COLORS.text }}>
+        <Text
+          style={{
+            fontSize: 18,
+            fontWeight: "900",
+            color: COLORS.text,
+          }}
+        >
           {title}
         </Text>
+
         {subtitle ? (
           <Text
             style={{
@@ -194,19 +270,23 @@ function FilterChip({
       onPress={onPress}
       style={{
         flex: 1,
-        height: 42,
+        minHeight: 42,
         borderRadius: 14,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: active ? COLORS.primary : "#fff",
         borderWidth: 1,
         borderColor: active ? COLORS.primary : COLORS.border,
+        paddingHorizontal: 8,
+        paddingVertical: 8,
       }}
     >
       <Text
         style={{
           fontWeight: "900",
           color: active ? "#fff" : COLORS.text,
+          textAlign: "center",
+          fontSize: 13,
         }}
       >
         {label}
@@ -235,6 +315,7 @@ function SummaryCard({
       }}
     >
       <Text style={{ color: COLORS.muted, fontSize: 12 }}>{label}</Text>
+
       <Text
         style={{
           marginTop: 6,
@@ -314,6 +395,8 @@ function EpisodeCard({
   onOpen: (id: number) => void;
 }) {
   const badge = statusMeta(episode.status);
+  const patientName = episodePatientName(episode);
+  const providerName = episodeProviderName(episode);
 
   return (
     <Pressable
@@ -339,21 +422,21 @@ function EpisodeCard({
             style={{
               color: COLORS.text,
               fontWeight: "900",
-              fontSize: 16,
-              lineHeight: 22,
+              fontSize: 17,
+              lineHeight: 23,
             }}
           >
-            {episode.title}
+            {episodeTitle(episode)}
           </Text>
 
           <Text
             style={{
-              marginTop: 6,
+              marginTop: 7,
               color: COLORS.muted,
               lineHeight: 20,
             }}
           >
-            Episod #{episode.id}
+            {patientName}
           </Text>
         </View>
 
@@ -370,7 +453,6 @@ function EpisodeCard({
               color: badge.text,
               fontWeight: "900",
               fontSize: 12,
-              textTransform: "capitalize",
             }}
           >
             {badge.label}
@@ -386,16 +468,70 @@ function EpisodeCard({
           padding: 14,
         }}
       >
-        <Text style={{ color: COLORS.text, fontWeight: "900", fontSize: 14 }}>
-          Pacient #{episode.patient_id}
+        <Text
+          style={{
+            color: COLORS.muted,
+            fontSize: 12,
+            fontWeight: "800",
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
+          Pacient
         </Text>
 
-        <Text style={{ marginTop: 6, color: COLORS.muted }}>
-          Owner provider #{episode.owner_provider_id}
+        <Text
+          style={{
+            marginTop: 5,
+            color: COLORS.text,
+            fontWeight: "900",
+            fontSize: 15,
+            lineHeight: 21,
+          }}
+        >
+          {patientName}
         </Text>
 
-        <Text style={{ marginTop: 6, color: COLORS.muted }}>
-          Creat la: {fmt(episode.created_at)}
+        <View
+          style={{
+            height: 1,
+            backgroundColor: COLORS.border,
+            marginVertical: 12,
+          }}
+        />
+
+        <Text
+          style={{
+            color: COLORS.muted,
+            fontSize: 12,
+            fontWeight: "800",
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
+          Furnizor responsabil
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 5,
+            color: COLORS.text,
+            fontWeight: "800",
+            fontSize: 14,
+            lineHeight: 20,
+          }}
+        >
+          {providerName}
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 10,
+            color: COLORS.muted,
+            lineHeight: 20,
+          }}
+        >
+          Creat la {fmt(episode.created_at)}
         </Text>
       </View>
 
@@ -411,11 +547,12 @@ function EpisodeCard({
           style={{
             color: isOwned ? COLORS.primary : COLORS.warning,
             fontWeight: "800",
+            lineHeight: 20,
           }}
         >
           {isOwned
-            ? "Episod propriu al clinicii / furnizorului tău"
-            : "Episod accesibil prin referral sau altă relație de acces"}
+            ? "Episod coordonat de clinica sau furnizorul tău."
+            : "Episod accesibil prin trimitere sau printr-o altă relație de îngrijire."}
         </Text>
       </View>
 
@@ -428,12 +565,24 @@ function EpisodeCard({
           gap: 12,
         }}
       >
-        <Text style={{ color: COLORS.muted, fontSize: 12 }}>
-          Apasă pentru timeline și detalii
+        <Text
+          style={{
+            flex: 1,
+            color: COLORS.muted,
+            fontSize: 12,
+            lineHeight: 18,
+          }}
+        >
+          Vezi timeline-ul, programările și documentele asociate.
         </Text>
 
-        <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
-          Deschide episodul →
+        <Text
+          style={{
+            color: COLORS.primary,
+            fontWeight: "900",
+          }}
+        >
+          Deschide →
         </Text>
       </View>
     </Pressable>
@@ -449,12 +598,12 @@ export default function ProviderEpisodes() {
 
   const loadProviderMe = useCallback(async () => {
     try {
-      const p = await fetchProviderMe();
-      setProviderMe(p);
-    } catch (e: any) {
-      const status = e?.response?.status;
+      const provider = await fetchProviderMe();
+      setProviderMe(provider);
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
         return;
@@ -462,8 +611,8 @@ export default function ProviderEpisodes() {
 
       console.log(
         "[EPISODES] fetchProviderMe failed:",
-        e?.message,
-        e?.response?.data,
+        error?.message,
+        error?.response?.data,
       );
     }
   }, []);
@@ -473,14 +622,18 @@ export default function ProviderEpisodes() {
     setBusy(true);
 
     try {
-      const res = await api.get("/care-episodes/");
-      setEpisodes((res.data ?? []) as EpisodeRow[]);
-    } catch (e: any) {
-      const status = e?.response?.status;
-      const detail = e?.response?.data?.detail || e?.message || "Load failed";
+      const response = await api.get("/care-episodes/");
+      setEpisodes((response.data ?? []) as EpisodeRow[]);
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
+      const detail =
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Încărcarea episoadelor a eșuat.";
+
       setErr(String(detail));
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
       }
@@ -491,8 +644,8 @@ export default function ProviderEpisodes() {
 
   useFocusEffect(
     useCallback(() => {
-      loadProviderMe();
-      load();
+      void loadProviderMe();
+      void load();
     }, [load, loadProviderMe]),
   );
 
@@ -501,48 +654,69 @@ export default function ProviderEpisodes() {
   const filtered = useMemo(() => {
     const list = episodes ?? [];
 
-    if (mode === "all") return list;
-
-    if (!myProviderId) return list;
-
-    if (mode === "owned") {
-      return list.filter((ep) => ep.owner_provider_id === myProviderId);
+    if (mode === "all") {
+      return list;
     }
 
-    return list.filter((ep) => ep.owner_provider_id !== myProviderId);
+    if (!myProviderId) {
+      return list;
+    }
+
+    if (mode === "owned") {
+      return list.filter(
+        (episode) => episode.owner_provider_id === myProviderId,
+      );
+    }
+
+    return list.filter((episode) => episode.owner_provider_id !== myProviderId);
   }, [episodes, mode, myProviderId]);
 
   const ownedCount = useMemo(() => {
     if (!myProviderId) return 0;
-    return (episodes ?? []).filter(
-      (ep) => ep.owner_provider_id === myProviderId,
+
+    return episodes.filter(
+      (episode) => episode.owner_provider_id === myProviderId,
     ).length;
   }, [episodes, myProviderId]);
 
   const referredCount = useMemo(() => {
     if (!myProviderId) return 0;
-    return (episodes ?? []).filter(
-      (ep) => ep.owner_provider_id !== myProviderId,
+
+    return episodes.filter(
+      (episode) => episode.owner_provider_id !== myProviderId,
     ).length;
   }, [episodes, myProviderId]);
 
   const openCount = useMemo(() => {
-    return (episodes ?? []).filter((ep) => {
-      const s = String(ep.status || "").toLowerCase();
-      return s === "open" || s === "active" || s === "in_progress";
+    return episodes.filter((episode) => {
+      const episodeStatus = String(episode.status || "").toLowerCase();
+
+      return (
+        episodeStatus === "open" ||
+        episodeStatus === "active" ||
+        episodeStatus === "in_progress"
+      );
     }).length;
   }, [episodes]);
 
   const summaryText = useMemo(() => {
-    if (filtered.length === 0) return emptyMessage(mode);
-    if (filtered.length === 1) return "Ai 1 episod în filtrul selectat.";
+    if (filtered.length === 0) {
+      return emptyMessage(mode);
+    }
+
+    if (filtered.length === 1) {
+      return "Ai un episod în filtrul selectat.";
+    }
+
     return `Ai ${filtered.length} episoade în filtrul selectat.`;
   }, [filtered.length, mode]);
 
   function openEpisode(id: number) {
     router.push({
       pathname: "/(provider)/episode/[id]",
-      params: { id: String(id) },
+      params: {
+        id: String(id),
+      },
     });
   }
 
@@ -576,6 +750,7 @@ export default function ProviderEpisodes() {
               backgroundColor: "rgba(79,179,232,0.18)",
             }}
           />
+
           <View
             style={{
               position: "absolute",
@@ -608,9 +783,9 @@ export default function ProviderEpisodes() {
                 fontWeight: "900",
               }}
             >
-              Timeline-ul medical,
+              Povestea medicală,
               {"\n"}
-              clar și accesibil.
+              clar organizată.
             </Text>
 
             <Text
@@ -621,8 +796,8 @@ export default function ProviderEpisodes() {
                 maxWidth: "88%",
               }}
             >
-              Intră rapid în episoadele active, proprii sau accesibile prin
-              referral, și urmărește evoluția fiecărui caz.
+              Găsești pacientul, furnizorul responsabil și întregul parcurs al
+              episodului într-un singur loc.
             </Text>
           </View>
         </View>
@@ -636,8 +811,8 @@ export default function ProviderEpisodes() {
         >
           <SummaryCard label="Total episoade" value={episodes.length} />
           <SummaryCard label="Episoade active" value={openCount} />
-          <SummaryCard label="Owned" value={ownedCount} />
-          <SummaryCard label="Referred" value={referredCount} />
+          <SummaryCard label="Coordonate de noi" value={ownedCount} />
+          <SummaryCard label="Primite prin trimitere" value={referredCount} />
         </View>
 
         <View
@@ -663,13 +838,15 @@ export default function ProviderEpisodes() {
               active={mode === "all"}
               onPress={() => setMode("all")}
             />
+
             <FilterChip
-              label="Owned"
+              label="Coordonate"
               active={mode === "owned"}
               onPress={() => setMode("owned")}
             />
+
             <FilterChip
-              label="Referred"
+              label="Primite"
               active={mode === "referred"}
               onPress={() => setMode("referred")}
             />
@@ -690,6 +867,7 @@ export default function ProviderEpisodes() {
             }}
           >
             <ActivityIndicator size="large" color={COLORS.primary} />
+
             <Text
               style={{
                 marginTop: 12,
@@ -719,6 +897,7 @@ export default function ProviderEpisodes() {
             >
               A apărut o eroare
             </Text>
+
             <Text
               style={{
                 marginTop: 8,
@@ -728,20 +907,42 @@ export default function ProviderEpisodes() {
             >
               {err}
             </Text>
+
+            <Pressable
+              onPress={load}
+              style={{
+                marginTop: 14,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: COLORS.primary,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                }}
+              >
+                Încearcă din nou
+              </Text>
+            </Pressable>
           </View>
         ) : filtered.length === 0 ? (
           <EmptyCard
             title={emptyMessage(mode)}
-            subtitle="Când vor exista episoade în această categorie, le vei vedea aici într-o listă clară și ușor de urmărit."
+            subtitle="Când vor exista episoade în această categorie, le vei vedea aici cu numele pacientului și furnizorul responsabil."
           />
         ) : (
           <View style={{ gap: 10 }}>
-            {filtered.map((ep) => (
+            {filtered.map((episode) => (
               <EpisodeCard
-                key={ep.id}
-                episode={ep}
+                key={episode.id}
+                episode={episode}
                 isOwned={
-                  !!myProviderId && ep.owner_provider_id === myProviderId
+                  Boolean(myProviderId) &&
+                  episode.owner_provider_id === myProviderId
                 }
                 onOpen={openEpisode}
               />
