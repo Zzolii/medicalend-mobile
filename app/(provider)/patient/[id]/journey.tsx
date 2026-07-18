@@ -4,8 +4,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -21,17 +19,23 @@ import { clearToken } from "../../../../_lib/session";
 
 const COLORS = {
   primary: "#2F6BFF",
+  primaryDark: "#0F2F6B",
+
   bg: "#F7F9FC",
   card: "#FFFFFF",
   border: "#E6EAF2",
+
   text: "#0F172A",
   muted: "#64748B",
+
   error: "#EF4444",
-  success: "#22C55E",
-  warning: "#F59E0B",
+  success: "#16A34A",
+  warning: "#D97706",
+
   softBlue: "#EEF4FF",
   softGreen: "#ECFDF5",
   softAmber: "#FFFBEB",
+  softRed: "#FEF2F2",
   softGray: "#F8FAFC",
 };
 
@@ -55,12 +59,15 @@ type EpisodeRow = {
   title?: string | null;
   status?: string | null;
   created_at?: string | null;
+  patient_name?: string | null;
+  owner_provider_name?: string | null;
 };
 
 type TimelineAppointment = {
   id: number;
   start_time?: string | null;
   end_time?: string | null;
+  created_at?: string | null;
   status?: string | null;
   notes?: string | null;
   provider_name?: string | null;
@@ -92,6 +99,7 @@ type TimelineReferral = {
 
 type TimelineDocument = {
   id: number;
+  title?: string | null;
   file_name?: string | null;
   file_url?: string | null;
   appointment_id?: number | null;
@@ -107,106 +115,232 @@ type EpisodeTimeline = {
   documents: TimelineDocument[];
 };
 
-type JourneyItem = {
-  key: string;
-  kind: "episode" | "appointment" | "note" | "task" | "referral" | "document";
-  at?: string | null;
-  title: string;
-  subtitle?: string;
-  status?: string | null;
-  fileUrl?: string | null;
-  appointmentId?: number | null;
-  episodeId?: number | null;
+type EpisodeSummary = {
+  episode: EpisodeRow;
+  appointmentsCount: number;
+  documentsCount: number;
+  tasksCount: number;
+  referralsCount: number;
+  notesCount: number;
+  totalEvents: number;
+  lastActivityAt?: string | null;
+  lastActivityLabel: string;
+  nextAppointmentAt?: string | null;
 };
 
+function cleanText(value?: string | null) {
+  return String(value ?? "").trim();
+}
+
 function patientName(patient?: PatientDetails | null) {
-  const full = [patient?.first_name, patient?.last_name]
+  const fullName = [patient?.first_name, patient?.last_name]
+    .map((part) => cleanText(part))
     .filter(Boolean)
     .join(" ")
     .trim();
-  return full || (patient?.id ? `Pacient #${patient.id}` : "Pacient");
+
+  if (fullName) {
+    return fullName;
+  }
+
+  return patient?.id ? `Pacient #${patient.id}` : "Pacient";
+}
+
+function patientLocation(patient?: PatientDetails | null) {
+  return [cleanText(patient?.city), cleanText(patient?.county)]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Dată nespecificată";
+  return formatWallClockDateTime(value);
+}
+
+function formatShortDate(value?: string | null) {
+  if (!value) return "Dată nespecificată";
+
+  const rawMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (rawMatch) {
+    const [, year, month, day] = rawMatch;
+    return `${day}.${month}.${year}`;
+  }
+
+  try {
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleDateString("ro-RO", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return value;
+  }
 }
 
 function statusLabel(status?: string | null) {
-  switch (status) {
+  switch (String(status || "").toLowerCase()) {
     case "open":
     case "active":
       return "Activ";
+
     case "in_progress":
       return "În desfășurare";
+
     case "completed":
       return "Finalizat";
+
     case "closed":
       return "Închis";
+
     case "archived":
       return "Arhivat";
-    case "scheduled":
-      return "Programată";
+
     case "canceled":
-      return "Anulată";
-    case "pending":
-      return "În așteptare";
-    case "accepted":
-      return "Acceptată";
-    case "rejected":
-      return "Respinsă";
-    case "todo":
-      return "De făcut";
-    case "done":
-      return "Finalizată";
+      return "Anulat";
+
     default:
-      return status || "Necunoscut";
+      return cleanText(status) || "Nespecificat";
   }
 }
 
 function statusMeta(status?: string | null) {
-  switch (status) {
-    case "open":
-    case "active":
-    case "scheduled":
-    case "accepted":
-      return { bg: COLORS.softGreen, text: COLORS.success };
-    case "in_progress":
-    case "todo":
-      return { bg: COLORS.softAmber, text: COLORS.warning };
-    case "completed":
-    case "done":
-    case "closed":
-    case "archived":
-      return { bg: COLORS.softGray, text: COLORS.muted };
-    case "canceled":
-    case "rejected":
-      return { bg: "#FEF2F2", text: COLORS.error };
-    default:
-      return { bg: COLORS.softBlue, text: COLORS.primary };
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized === "open" || normalized === "active") {
+    return {
+      bg: COLORS.softGreen,
+      text: COLORS.success,
+    };
   }
-}
 
-function kindLabel(kind: JourneyItem["kind"]) {
-  switch (kind) {
-    case "episode":
-      return "Episod";
-    case "appointment":
-      return "Programare";
-    case "note":
-      return "Notă";
-    case "task":
-      return "Sarcină";
-    case "referral":
-      return "Trimitere";
-    case "document":
-      return "PDF";
-    default:
-      return "Eveniment";
+  if (normalized === "in_progress") {
+    return {
+      bg: COLORS.softAmber,
+      text: COLORS.warning,
+    };
   }
+
+  if (normalized === "canceled") {
+    return {
+      bg: COLORS.softRed,
+      text: COLORS.error,
+    };
+  }
+
+  return {
+    bg: COLORS.softGray,
+    text: COLORS.muted,
+  };
 }
 
-function fmt(value?: string | null) {
-  if (!value) return "Nespecificat";
-  return formatWallClockDateTime(value);
+function isActiveEpisode(status?: string | null) {
+  const normalized = String(status || "").toLowerCase();
+
+  return (
+    normalized === "open" ||
+    normalized === "active" ||
+    normalized === "in_progress"
+  );
 }
 
-function Pill({ label, status }: { label: string; status?: string | null }) {
+function episodeTitle(episode: EpisodeRow) {
+  return cleanText(episode.title) || "Episod medical";
+}
+
+function providerName(episode: EpisodeRow) {
+  return (
+    cleanText(episode.owner_provider_name) ||
+    (episode.owner_provider_id
+      ? `Furnizor #${episode.owner_provider_id}`
+      : "Furnizor nespecificat")
+  );
+}
+
+function latestActivityFromTimeline(timeline: EpisodeTimeline) {
+  const candidates: {
+    at?: string | null;
+    label: string;
+  }[] = [];
+
+  for (const appointment of timeline.appointments ?? []) {
+    candidates.push({
+      at: appointment.start_time || appointment.created_at,
+      label:
+        cleanText(appointment.notes) ||
+        cleanText(appointment.doctor_name) ||
+        "Consultație medicală",
+    });
+  }
+
+  for (const document of timeline.documents ?? []) {
+    candidates.push({
+      at: document.created_at,
+      label:
+        cleanText(document.title) ||
+        cleanText(document.file_name) ||
+        "Document medical",
+    });
+  }
+
+  for (const note of timeline.notes ?? []) {
+    candidates.push({
+      at: note.created_at,
+      label: "Notă de coordonare",
+    });
+  }
+
+  for (const task of timeline.tasks ?? []) {
+    candidates.push({
+      at: task.due_at || task.created_at,
+      label: cleanText(task.title) || "Sarcină",
+    });
+  }
+
+  for (const referral of timeline.referrals ?? []) {
+    candidates.push({
+      at: referral.created_at,
+      label: cleanText(referral.reason) || "Trimitere medicală",
+    });
+  }
+
+  return candidates
+    .filter((item) => Boolean(item.at))
+    .sort(
+      (first, second) =>
+        wallClockTimestamp(second.at || "") -
+        wallClockTimestamp(first.at || ""),
+    )[0];
+}
+
+function nextAppointmentFromTimeline(timeline: EpisodeTimeline) {
+  const now = Date.now();
+
+  return (timeline.appointments ?? [])
+    .filter((appointment) => {
+      if (!appointment.start_time) return false;
+
+      const timestamp = wallClockTimestamp(appointment.start_time);
+      const status = String(appointment.status || "").toLowerCase();
+
+      return (
+        timestamp >= now && status !== "canceled" && status !== "completed"
+      );
+    })
+    .sort(
+      (first, second) =>
+        wallClockTimestamp(first.start_time || "") -
+        wallClockTimestamp(second.start_time || ""),
+    )[0];
+}
+
+function StatusPill({ status }: { status?: string | null }) {
   const meta = statusMeta(status);
 
   return (
@@ -219,26 +353,341 @@ function Pill({ label, status }: { label: string; status?: string | null }) {
         backgroundColor: meta.bg,
       }}
     >
-      <Text style={{ color: meta.text, fontWeight: "900", fontSize: 12 }}>
-        {label}
+      <Text
+        style={{
+          color: meta.text,
+          fontWeight: "900",
+          fontSize: 12,
+        }}
+      >
+        {statusLabel(status)}
       </Text>
     </View>
   );
 }
 
+function SummaryCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        minWidth: "47%",
+        backgroundColor: COLORS.card,
+        borderRadius: 18,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+      }}
+    >
+      <Text
+        style={{
+          color: COLORS.muted,
+          fontSize: 12,
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={{
+          marginTop: 6,
+          color: COLORS.text,
+          fontSize: 25,
+          fontWeight: "900",
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function ContactItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View>
+      <Text
+        style={{
+          color: COLORS.muted,
+          fontSize: 11,
+          fontWeight: "800",
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        {label}
+      </Text>
+
+      <Text
+        style={{
+          marginTop: 5,
+          color: COLORS.text,
+          fontSize: 14,
+          fontWeight: "800",
+          lineHeight: 20,
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function EpisodeCard({
+  summary,
+  onPress,
+}: {
+  summary: EpisodeSummary;
+  onPress: () => void;
+}) {
+  const { episode } = summary;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        backgroundColor: COLORS.card,
+        borderRadius: 22,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+              fontSize: 17,
+              lineHeight: 23,
+            }}
+          >
+            {episodeTitle(episode)}
+          </Text>
+
+          <Text
+            style={{
+              marginTop: 6,
+              color: COLORS.muted,
+              fontSize: 14,
+              lineHeight: 20,
+            }}
+          >
+            {providerName(episode)}
+          </Text>
+        </View>
+
+        <StatusPill status={episode.status} />
+      </View>
+
+      <View
+        style={{
+          marginTop: 15,
+          borderRadius: 16,
+          backgroundColor: COLORS.softGray,
+          padding: 14,
+        }}
+      >
+        <Text
+          style={{
+            color: COLORS.muted,
+            fontSize: 11,
+            fontWeight: "800",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
+          Ultima activitate
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 5,
+            color: COLORS.text,
+            fontWeight: "900",
+            fontSize: 14,
+            lineHeight: 20,
+          }}
+        >
+          {summary.lastActivityLabel}
+        </Text>
+
+        <Text
+          style={{
+            marginTop: 5,
+            color: COLORS.muted,
+            fontSize: 13,
+          }}
+        >
+          {summary.lastActivityAt
+            ? formatDateTime(summary.lastActivityAt)
+            : `Episod început la ${formatShortDate(episode.created_at)}`}
+        </Text>
+      </View>
+
+      {summary.nextAppointmentAt ? (
+        <View
+          style={{
+            marginTop: 10,
+            borderRadius: 14,
+            backgroundColor: COLORS.softBlue,
+            padding: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.primary,
+              fontWeight: "900",
+              fontSize: 13,
+            }}
+          >
+            Următoarea consultație
+          </Text>
+
+          <Text
+            style={{
+              marginTop: 4,
+              color: COLORS.text,
+              fontWeight: "800",
+              fontSize: 14,
+            }}
+          >
+            {formatDateTime(summary.nextAppointmentAt)}
+          </Text>
+        </View>
+      ) : null}
+
+      <View
+        style={{
+          marginTop: 14,
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+        }}
+      >
+        <View
+          style={{
+            borderRadius: 999,
+            backgroundColor: COLORS.softBlue,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.primary,
+              fontWeight: "800",
+              fontSize: 12,
+            }}
+          >
+            {summary.appointmentsCount} consultații
+          </Text>
+        </View>
+
+        <View
+          style={{
+            borderRadius: 999,
+            backgroundColor: COLORS.softGreen,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.success,
+              fontWeight: "800",
+              fontSize: 12,
+            }}
+          >
+            {summary.documentsCount} documente
+          </Text>
+        </View>
+
+        {summary.tasksCount > 0 ? (
+          <View
+            style={{
+              borderRadius: 999,
+              backgroundColor: COLORS.softAmber,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+            }}
+          >
+            <Text
+              style={{
+                color: COLORS.warning,
+                fontWeight: "800",
+                fontSize: 12,
+              }}
+            >
+              {summary.tasksCount} sarcini
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View
+        style={{
+          marginTop: 14,
+          paddingTop: 12,
+          borderTopWidth: 1,
+          borderTopColor: COLORS.border,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <Text
+          style={{
+            flex: 1,
+            color: COLORS.muted,
+            fontSize: 12,
+            lineHeight: 18,
+          }}
+        >
+          {summary.totalEvents} evenimente în istoricul episodului
+        </Text>
+
+        <Text
+          style={{
+            color: COLORS.primary,
+            fontWeight: "900",
+          }}
+        >
+          Deschide →
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 async function fetchPatient(patientId: number) {
-  const res = await api.get(`/patients/${patientId}`);
-  return res.data as PatientDetails;
+  const response = await api.get(`/patients/${patientId}`);
+  return response.data as PatientDetails;
 }
 
 async function fetchEpisodes() {
-  const res = await api.get("/care-episodes/");
-  return (res.data ?? []) as EpisodeRow[];
+  const response = await api.get("/care-episodes/");
+  return (response.data ?? []) as EpisodeRow[];
 }
 
 async function fetchTimeline(episodeId: number) {
-  const res = await api.get(`/care-episodes/${episodeId}/timeline`);
-  return res.data as EpisodeTimeline;
+  const response = await api.get(`/care-episodes/${episodeId}/timeline`);
+  return response.data as EpisodeTimeline;
 }
 
 export default function ProviderPatientJourneyScreen() {
@@ -266,16 +715,17 @@ export default function ProviderPatientJourneyScreen() {
         fetchEpisodes(),
       ]);
 
-      const patientEpisodes = (episodeRows ?? []).filter(
-        (ep) => Number(ep.patient_id) === patientId,
+      const patientEpisodes = episodeRows.filter(
+        (episode) => Number(episode.patient_id) === patientId,
       );
 
       const timelineRows = await Promise.all(
-        patientEpisodes.map(async (ep) => {
+        patientEpisodes.map(async (episode) => {
           try {
-            const timeline = await fetchTimeline(ep.id);
+            const timeline = await fetchTimeline(episode.id);
+
             return {
-              episode: timeline.episode ?? ep,
+              episode: timeline.episode ?? episode,
               appointments: timeline.appointments ?? [],
               notes: timeline.notes ?? [],
               tasks: timeline.tasks ?? [],
@@ -284,7 +734,7 @@ export default function ProviderPatientJourneyScreen() {
             } satisfies EpisodeTimeline;
           } catch {
             return {
-              episode: ep,
+              episode,
               appointments: [],
               notes: [],
               tasks: [],
@@ -297,22 +747,22 @@ export default function ProviderPatientJourneyScreen() {
 
       setPatient(patientData);
       setTimelines(timelineRows);
-    } catch (e: any) {
-      const status = e?.response?.status;
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
       const detail =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Nu am putut încărca Journey-ul pacientului.";
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Nu am putut încărca istoricul pacientului.";
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
         return;
       }
 
-      if (status === 403) {
+      if (responseStatus === 403) {
         setErr(
-          "Nu ai acces la Journey-ul acestui pacient. Accesul este permis doar dacă pacientul are o programare sau un episod asociat contului tău.",
+          "Nu ai acces la istoricul acestui pacient. Accesul este permis doar în contextul unei relații medicale active.",
         );
       } else {
         setErr(String(detail));
@@ -323,127 +773,92 @@ export default function ProviderPatientJourneyScreen() {
   }
 
   useEffect(() => {
-    load();
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
-  const journeyItems = useMemo<JourneyItem[]>(() => {
-    const rows: JourneyItem[] = [];
+  const episodeSummaries = useMemo<EpisodeSummary[]>(() => {
+    return timelines
+      .map((timeline) => {
+        const lastActivity = latestActivityFromTimeline(timeline);
+        const nextAppointment = nextAppointmentFromTimeline(timeline);
 
-    for (const entry of timelines) {
-      const ep = entry.episode;
+        const appointmentsCount = timeline.appointments.length;
+        const documentsCount = timeline.documents.length;
+        const notesCount = timeline.notes.length;
+        const tasksCount = timeline.tasks.length;
+        const referralsCount = timeline.referrals.length;
 
-      rows.push({
-        key: `episode-${ep.id}`,
-        kind: "episode",
-        at: ep.created_at,
-        title: ep.title || `Episod #${ep.id}`,
-        subtitle: `Episod creat pentru pacient`,
-        status: ep.status,
-        episodeId: ep.id,
+        return {
+          episode: timeline.episode,
+          appointmentsCount,
+          documentsCount,
+          notesCount,
+          tasksCount,
+          referralsCount,
+          totalEvents:
+            appointmentsCount +
+            documentsCount +
+            notesCount +
+            tasksCount +
+            referralsCount,
+          lastActivityAt:
+            lastActivity?.at || timeline.episode.created_at || null,
+          lastActivityLabel: lastActivity?.label || "Episod medical creat",
+          nextAppointmentAt: nextAppointment?.start_time || null,
+        };
+      })
+      .sort((first, second) => {
+        const firstTimestamp = wallClockTimestamp(
+          first.lastActivityAt || first.episode.created_at || "",
+        );
+
+        const secondTimestamp = wallClockTimestamp(
+          second.lastActivityAt || second.episode.created_at || "",
+        );
+
+        return secondTimestamp - firstTimestamp;
       });
-
-      for (const appt of entry.appointments) {
-        rows.push({
-          key: `appointment-${appt.id}`,
-          kind: "appointment",
-          at: appt.start_time,
-          title:
-            appt.doctor_name || appt.provider_name || `Programare #${appt.id}`,
-          subtitle: appt.notes || fmt(appt.start_time),
-          status: appt.status,
-          appointmentId: appt.id,
-          episodeId: ep.id,
-        });
-      }
-
-      for (const note of entry.notes) {
-        rows.push({
-          key: `note-${note.id}`,
-          kind: "note",
-          at: note.created_at,
-          title: "Notă clinică",
-          subtitle: note.text || "Fără conținut",
-          episodeId: ep.id,
-        });
-      }
-
-      for (const task of entry.tasks) {
-        rows.push({
-          key: `task-${task.id}`,
-          kind: "task",
-          at: task.due_at || task.created_at,
-          title: task.title || `Sarcină #${task.id}`,
-          subtitle: task.due_at ? `Termen: ${fmt(task.due_at)}` : "Fără termen",
-          status: task.status,
-          episodeId: ep.id,
-        });
-      }
-
-      for (const referral of entry.referrals) {
-        rows.push({
-          key: `referral-${referral.id}`,
-          kind: "referral",
-          at: referral.created_at,
-          title: "Trimitere medicală",
-          subtitle:
-            referral.reason ||
-            `De la provider ${referral.from_provider_id ?? "—"} către provider ${
-              referral.to_provider_id ?? "—"
-            }`,
-          status: referral.status,
-          episodeId: ep.id,
-        });
-      }
-
-      for (const doc of entry.documents) {
-        rows.push({
-          key: `document-${doc.id}`,
-          kind: "document",
-          at: doc.created_at,
-          title: doc.file_name || `Document #${doc.id}`,
-          subtitle: doc.appointment_id
-            ? `Atașat la programarea #${doc.appointment_id}`
-            : "Atașat direct la episod",
-          fileUrl: doc.file_url,
-          appointmentId: doc.appointment_id,
-          episodeId: ep.id,
-        });
-      }
-    }
-
-    return rows.sort(
-      (a, b) => wallClockTimestamp(b.at || "") - wallClockTimestamp(a.at || ""),
-    );
   }, [timelines]);
+
+  const activeEpisodes = useMemo(
+    () =>
+      episodeSummaries.filter((summary) =>
+        isActiveEpisode(summary.episode.status),
+      ),
+    [episodeSummaries],
+  );
+
+  const historicalEpisodes = useMemo(
+    () =>
+      episodeSummaries.filter(
+        (summary) => !isActiveEpisode(summary.episode.status),
+      ),
+    [episodeSummaries],
+  );
 
   const stats = useMemo(() => {
     return {
-      episodes: timelines.length,
-      appointments: journeyItems.filter((item) => item.kind === "appointment")
-        .length,
-      documents: journeyItems.filter((item) => item.kind === "document").length,
-      notes: journeyItems.filter((item) => item.kind === "note").length,
+      totalEpisodes: episodeSummaries.length,
+      activeEpisodes: activeEpisodes.length,
+      appointments: episodeSummaries.reduce(
+        (total, summary) => total + summary.appointmentsCount,
+        0,
+      ),
+      documents: episodeSummaries.reduce(
+        (total, summary) => total + summary.documentsCount,
+        0,
+      ),
     };
-  }, [journeyItems, timelines.length]);
+  }, [activeEpisodes.length, episodeSummaries]);
 
-  async function openPdf(url?: string | null) {
-    if (!url) {
-      Alert.alert("Eroare", "Linkul documentului lipsește.");
-      return;
-    }
-
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (!supported) {
-        Alert.alert("Eroare", "Documentul nu poate fi deschis.");
-        return;
-      }
-
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert("Eroare", "Nu s-a putut deschide PDF-ul.");
-    }
+  function openEpisode(episodeId: number) {
+    router.push({
+      pathname: "/(provider)/episode/[id]",
+      params: {
+        id: String(episodeId),
+      },
+    });
   }
 
   return (
@@ -458,14 +873,13 @@ export default function ProviderPatientJourneyScreen() {
           backgroundColor: "#fff",
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
           gap: 12,
         }}
       >
         <Pressable
           onPress={() => router.back()}
           style={{
-            height: 36,
+            height: 38,
             paddingHorizontal: 12,
             borderRadius: 12,
             borderWidth: 1,
@@ -475,7 +889,14 @@ export default function ProviderPatientJourneyScreen() {
             backgroundColor: "#fff",
           }}
         >
-          <Text style={{ fontWeight: "900", color: COLORS.text }}>Înapoi</Text>
+          <Text
+            style={{
+              fontWeight: "900",
+              color: COLORS.text,
+            }}
+          >
+            Înapoi
+          </Text>
         </Pressable>
 
         <Text
@@ -488,14 +909,14 @@ export default function ProviderPatientJourneyScreen() {
             color: COLORS.text,
           }}
         >
-          Journey pacient
+          Istoric pacient
         </Text>
 
         <Pressable
-          onPress={load}
+          onPress={() => void load()}
           disabled={busy}
           style={{
-            height: 36,
+            height: 38,
             paddingHorizontal: 12,
             borderRadius: 12,
             borderWidth: 1,
@@ -503,10 +924,15 @@ export default function ProviderPatientJourneyScreen() {
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: "#fff",
-            opacity: busy ? 0.6 : 1,
+            opacity: busy ? 0.55 : 1,
           }}
         >
-          <Text style={{ fontWeight: "900", color: COLORS.text }}>
+          <Text
+            style={{
+              fontWeight: "900",
+              color: COLORS.text,
+            }}
+          >
             Reîncarcă
           </Text>
         </Pressable>
@@ -514,20 +940,29 @@ export default function ProviderPatientJourneyScreen() {
 
       {busy ? (
         <View
-          style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
           <ActivityIndicator size="large" color={COLORS.primary} />
+
           <Text
-            style={{ marginTop: 12, color: COLORS.muted, fontWeight: "700" }}
+            style={{
+              marginTop: 12,
+              color: COLORS.muted,
+              fontWeight: "700",
+            }}
           >
-            Se încarcă Journey-ul pacientului...
+            Se încarcă istoricul pacientului...
           </Text>
         </View>
       ) : err ? (
         <View style={{ padding: 16 }}>
           <View
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: COLORS.card,
               borderRadius: 18,
               padding: 16,
               borderWidth: 1,
@@ -535,13 +970,45 @@ export default function ProviderPatientJourneyScreen() {
             }}
           >
             <Text
-              style={{ color: COLORS.error, fontWeight: "900", fontSize: 16 }}
+              style={{
+                color: COLORS.error,
+                fontWeight: "900",
+                fontSize: 16,
+              }}
             >
-              A apărut o eroare
+              Istoricul nu a putut fi încărcat
             </Text>
-            <Text style={{ marginTop: 8, color: COLORS.text, lineHeight: 21 }}>
+
+            <Text
+              style={{
+                marginTop: 8,
+                color: COLORS.text,
+                lineHeight: 21,
+              }}
+            >
               {err}
             </Text>
+
+            <Pressable
+              onPress={() => void load()}
+              style={{
+                marginTop: 14,
+                height: 44,
+                borderRadius: 14,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: COLORS.primary,
+              }}
+            >
+              <Text
+                style={{
+                  color: "#fff",
+                  fontWeight: "900",
+                }}
+              >
+                Încearcă din nou
+              </Text>
+            </Pressable>
           </View>
         </View>
       ) : (
@@ -549,267 +1016,247 @@ export default function ProviderPatientJourneyScreen() {
           contentContainerStyle={{
             paddingHorizontal: 16,
             paddingTop: 16,
-            paddingBottom: 30,
-            gap: 14,
+            paddingBottom: 32,
+            gap: 16,
           }}
           showsVerticalScrollIndicator={false}
         >
           <View
             style={{
-              backgroundColor: COLORS.primary,
-              borderRadius: 24,
-              padding: 18,
+              backgroundColor: COLORS.primaryDark,
+              borderRadius: 26,
+              padding: 20,
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                position: "absolute",
+                width: 190,
+                height: 190,
+                borderRadius: 999,
+                right: -55,
+                top: -70,
+                backgroundColor: "rgba(47,107,255,0.28)",
+              }}
+            />
+
+            <View
+              style={{
+                position: "absolute",
+                width: 170,
+                height: 170,
+                borderRadius: 999,
+                left: -80,
+                bottom: -100,
+                backgroundColor: "rgba(79,179,232,0.16)",
+              }}
+            />
+
+            <View style={{ zIndex: 2 }}>
+              <Text
+                style={{
+                  color: "rgba(255,255,255,0.68)",
+                  fontWeight: "800",
+                  fontSize: 12,
+                  letterSpacing: 0.7,
+                }}
+              >
+                PACIENT
+              </Text>
+
+              <Text
+                style={{
+                  marginTop: 8,
+                  color: "#fff",
+                  fontSize: 27,
+                  lineHeight: 33,
+                  fontWeight: "900",
+                }}
+              >
+                {patientName(patient)}
+              </Text>
+
+              <Text
+                style={{
+                  marginTop: 10,
+                  color: "rgba(255,255,255,0.82)",
+                  lineHeight: 21,
+                }}
+              >
+                Episoadele medicale sunt organizate separat, pentru ca istoricul
+                fiecărei probleme de sănătate să poată fi urmărit rapid.
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              gap: 10,
+            }}
+          >
+            <SummaryCard label="Episoade active" value={stats.activeEpisodes} />
+
+            <SummaryCard label="Total episoade" value={stats.totalEpisodes} />
+
+            <SummaryCard label="Consultații" value={stats.appointments} />
+
+            <SummaryCard label="Documente" value={stats.documents} />
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 20,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: COLORS.border,
             }}
           >
             <Text
-              style={{ color: "rgba(255,255,255,0.78)", fontWeight: "800" }}
-            >
-              PATIENT JOURNEY
-            </Text>
-            <Text
               style={{
-                marginTop: 8,
-                color: "#fff",
-                fontSize: 26,
-                lineHeight: 32,
+                color: COLORS.text,
+                fontSize: 17,
                 fontWeight: "900",
               }}
             >
-              {patientName(patient)}
+              Date de contact
             </Text>
-            <Text
+
+            <View
               style={{
-                marginTop: 10,
-                color: "rgba(255,255,255,0.86)",
-                lineHeight: 21,
+                marginTop: 14,
+                gap: 14,
               }}
             >
-              Istoric medical organizat pe episoade, programări, note, sarcini,
-              trimiteri și documente PDF.
-            </Text>
+              <ContactItem
+                label="Telefon"
+                value={cleanText(patient?.phone) || "Nedisponibil"}
+              />
+
+              <ContactItem
+                label="E-mail"
+                value={cleanText(patient?.email) || "Nedisponibil"}
+              />
+
+              <ContactItem
+                label="Localitate"
+                value={patientLocation(patient) || "Nespecificată"}
+              />
+            </View>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-            {[
-              { label: "Episoade", value: stats.episodes },
-              { label: "Programări", value: stats.appointments },
-              { label: "PDF-uri", value: stats.documents },
-              { label: "Note", value: stats.notes },
-            ].map((item) => (
+          <View>
+            <Text
+              style={{
+                color: COLORS.text,
+                fontSize: 19,
+                fontWeight: "900",
+              }}
+            >
+              Episoade active
+            </Text>
+
+            <Text
+              style={{
+                marginTop: 6,
+                color: COLORS.muted,
+                lineHeight: 20,
+              }}
+            >
+              Problemele medicale aflate în prezent în monitorizare sau
+              tratament.
+            </Text>
+
+            {activeEpisodes.length === 0 ? (
               <View
-                key={item.label}
                 style={{
-                  flexGrow: 1,
-                  minWidth: "47%",
+                  marginTop: 14,
                   backgroundColor: COLORS.card,
                   borderRadius: 18,
-                  padding: 14,
+                  padding: 16,
                   borderWidth: 1,
                   borderColor: COLORS.border,
                 }}
               >
-                <Text style={{ color: COLORS.muted, fontWeight: "800" }}>
-                  {item.label}
-                </Text>
                 <Text
                   style={{
-                    marginTop: 6,
                     color: COLORS.text,
-                    fontSize: 26,
                     fontWeight: "900",
                   }}
                 >
-                  {item.value}
+                  Nu există episoade active
+                </Text>
+
+                <Text
+                  style={{
+                    marginTop: 7,
+                    color: COLORS.muted,
+                    lineHeight: 20,
+                  }}
+                >
+                  Episoadele finalizate rămân disponibile în istoricul de mai
+                  jos.
                 </Text>
               </View>
-            ))}
-          </View>
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 22,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            <Text
-              style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}
-            >
-              Date pacient
-            </Text>
-
-            <Text style={{ marginTop: 10, color: COLORS.muted }}>
-              Email: {patient?.email || "Nedisponibil"}
-            </Text>
-            <Text style={{ marginTop: 6, color: COLORS.muted }}>
-              Telefon: {patient?.phone || "Nedisponibil"}
-            </Text>
-            <Text style={{ marginTop: 6, color: COLORS.muted }}>
-              Locație:{" "}
-              {[patient?.city, patient?.county].filter(Boolean).join(", ") ||
-                "Nespecificată"}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 22,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            <Text
-              style={{ color: COLORS.text, fontSize: 18, fontWeight: "900" }}
-            >
-              Timeline medical
-            </Text>
-            <Text style={{ marginTop: 6, color: COLORS.muted, lineHeight: 20 }}>
-              Evenimentele sunt afișate de la cele mai recente la cele mai
-              vechi.
-            </Text>
-
-            {journeyItems.length === 0 ? (
-              <Text style={{ marginTop: 14, color: COLORS.muted }}>
-                Nu există încă evenimente disponibile pentru acest pacient.
-              </Text>
             ) : (
-              <View style={{ marginTop: 14, gap: 10 }}>
-                {journeyItems.map((item) => (
-                  <View
-                    key={item.key}
-                    style={{
-                      borderRadius: 18,
-                      borderWidth: 1,
-                      borderColor: COLORS.border,
-                      backgroundColor: "#fff",
-                      padding: 14,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "flex-start",
-                        justifyContent: "space-between",
-                        gap: 10,
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            color: COLORS.text,
-                            fontWeight: "900",
-                            lineHeight: 21,
-                          }}
-                        >
-                          {item.title}
-                        </Text>
-                        <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                          {kindLabel(item.kind)} • {fmt(item.at)}
-                        </Text>
-                      </View>
-
-                      <Pill
-                        label={
-                          item.status
-                            ? statusLabel(item.status)
-                            : kindLabel(item.kind)
-                        }
-                        status={item.status}
-                      />
-                    </View>
-
-                    {item.subtitle ? (
-                      <Text
-                        style={{
-                          marginTop: 10,
-                          color: COLORS.text,
-                          lineHeight: 20,
-                        }}
-                      >
-                        {item.subtitle}
-                      </Text>
-                    ) : null}
-
-                    <View
-                      style={{ flexDirection: "row", gap: 10, marginTop: 12 }}
-                    >
-                      {item.episodeId ? (
-                        <Pressable
-                          onPress={() =>
-                            router.push({
-                              pathname: "/(provider)/episode/[id]",
-                              params: { id: String(item.episodeId) },
-                            })
-                          }
-                          style={{
-                            flex: 1,
-                            height: 40,
-                            borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: COLORS.border,
-                            backgroundColor: "#fff",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Text
-                            style={{ color: COLORS.text, fontWeight: "900" }}
-                          >
-                            Deschide episodul
-                          </Text>
-                        </Pressable>
-                      ) : null}
-
-                      {item.kind === "appointment" && item.appointmentId ? (
-                        <Pressable
-                          onPress={() =>
-                            router.push({
-                              pathname: "/(provider)/appointment/[id]",
-                              params: { id: String(item.appointmentId) },
-                            })
-                          }
-                          style={{
-                            flex: 1,
-                            height: 40,
-                            borderRadius: 12,
-                            backgroundColor: COLORS.primary,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Text style={{ color: "#fff", fontWeight: "900" }}>
-                            Programare
-                          </Text>
-                        </Pressable>
-                      ) : null}
-
-                      {item.kind === "document" ? (
-                        <Pressable
-                          onPress={() => openPdf(item.fileUrl)}
-                          style={{
-                            flex: 1,
-                            height: 40,
-                            borderRadius: 12,
-                            backgroundColor: COLORS.primary,
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <Text style={{ color: "#fff", fontWeight: "900" }}>
-                            Deschide PDF
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  </View>
+              <View
+                style={{
+                  marginTop: 14,
+                  gap: 10,
+                }}
+              >
+                {activeEpisodes.map((summary) => (
+                  <EpisodeCard
+                    key={summary.episode.id}
+                    summary={summary}
+                    onPress={() => openEpisode(summary.episode.id)}
+                  />
                 ))}
               </View>
             )}
           </View>
+
+          {historicalEpisodes.length > 0 ? (
+            <View>
+              <Text
+                style={{
+                  color: COLORS.text,
+                  fontSize: 19,
+                  fontWeight: "900",
+                }}
+              >
+                Istoric episoade
+              </Text>
+
+              <Text
+                style={{
+                  marginTop: 6,
+                  color: COLORS.muted,
+                  lineHeight: 20,
+                }}
+              >
+                Episoade finalizate, închise sau arhivate.
+              </Text>
+
+              <View
+                style={{
+                  marginTop: 14,
+                  gap: 10,
+                }}
+              >
+                {historicalEpisodes.map((summary) => (
+                  <EpisodeCard
+                    key={summary.episode.id}
+                    summary={summary}
+                    onPress={() => openEpisode(summary.episode.id)}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
       )}
     </View>
