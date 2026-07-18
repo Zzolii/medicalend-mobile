@@ -37,7 +37,6 @@ import { clearToken } from "../../../_lib/session";
 
 const COLORS = {
   primary: "#2F6BFF",
-  primaryLight: "#4FB3E8",
   primaryDark: "#0F2F6B",
 
   bg: "#F7F9FC",
@@ -47,9 +46,9 @@ const COLORS = {
   text: "#0F172A",
   muted: "#64748B",
 
-  error: "#EF4444",
-  success: "#22C55E",
-  warning: "#F59E0B",
+  error: "#DC2626",
+  success: "#16A34A",
+  warning: "#D97706",
 
   softBlue: "#EEF4FF",
   softGreen: "#ECFDF5",
@@ -58,46 +57,136 @@ const COLORS = {
   softGray: "#F8FAFC",
 };
 
-function fmt(value?: string | null) {
-  if (!value) return "-";
+type AppointmentStatus = "scheduled" | "in_progress" | "completed" | "canceled";
+
+type TaskStatus = "todo" | "doing" | "done";
+
+function cleanText(value?: string | null) {
+  return String(value ?? "").trim();
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Dată nespecificată";
   return formatWallClockDateTime(value);
 }
 
-function doctorLabel(data: AppointmentOut) {
-  if (data.doctor_name?.trim()) return data.doctor_name.trim();
-  return "Oricare medic disponibil";
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+
+  const match = String(value).match(/T(\d{2}):(\d{2})/);
+
+  if (match) {
+    return `${match[1]}:${match[2]}`;
+  }
+
+  try {
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "—";
+    }
+
+    return parsed.toLocaleTimeString("ro-RO", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "Dată nespecificată";
+
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (match) {
+    const [, year, month, day] = match;
+
+    try {
+      const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+
+      return parsed.toLocaleDateString("ro-RO", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return `${day}.${month}.${year}`;
+    }
+  }
+
+  return formatDateTime(value);
 }
 
 function patientLabel(data: AppointmentOut) {
-  if (data.patient_name?.trim()) return data.patient_name.trim();
-  return `Pacient #${data.patient_id}`;
+  return cleanText(data.patient_name) || "Pacient";
 }
 
-function statusMeta(status?: string | null) {
+function providerLabel(data: AppointmentOut) {
+  return cleanText(data.provider_name) || "Furnizor medical";
+}
+
+function doctorLabel(data: AppointmentOut) {
+  return cleanText(data.doctor_name) || "Medic nespecificat";
+}
+
+function appointmentStatusMeta(status?: string | null) {
   switch (String(status || "").toLowerCase()) {
-    case "completed":
-      return {
-        label: "Finalizată",
-        bg: COLORS.softGreen,
-        text: COLORS.success,
-      };
-    case "canceled":
-      return {
-        label: "Anulată",
-        bg: COLORS.softRed,
-        text: COLORS.error,
-      };
     case "in_progress":
       return {
         label: "În desfășurare",
-        bg: COLORS.softBlue,
-        text: COLORS.primary,
+        backgroundColor: COLORS.softBlue,
+        color: COLORS.primary,
       };
+
+    case "completed":
+      return {
+        label: "Finalizată",
+        backgroundColor: COLORS.softGreen,
+        color: COLORS.success,
+      };
+
+    case "canceled":
+      return {
+        label: "Anulată",
+        backgroundColor: COLORS.softRed,
+        color: COLORS.error,
+      };
+
     default:
       return {
         label: "Programată",
-        bg: COLORS.softAmber,
-        text: COLORS.warning,
+        backgroundColor: COLORS.softAmber,
+        color: COLORS.warning,
+      };
+  }
+}
+
+function taskStatusMeta(status?: string | null) {
+  switch (String(status || "").toLowerCase()) {
+    case "doing":
+    case "in_progress":
+      return {
+        label: "În lucru",
+        backgroundColor: COLORS.softAmber,
+        color: COLORS.warning,
+      };
+
+    case "done":
+    case "completed":
+      return {
+        label: "Finalizată",
+        backgroundColor: COLORS.softGreen,
+        color: COLORS.success,
+      };
+
+    default:
+      return {
+        label: "De făcut",
+        backgroundColor: COLORS.softBlue,
+        color: COLORS.primary,
       };
   }
 }
@@ -106,12 +195,14 @@ function SectionHeader({
   title,
   subtitle,
   actionLabel,
-  onPress,
+  onAction,
+  actionDisabled,
 }: {
   title: string;
   subtitle?: string;
   actionLabel?: string;
-  onPress?: () => void;
+  onAction?: () => void;
+  actionDisabled?: boolean;
 }) {
   return (
     <View
@@ -123,19 +214,51 @@ function SectionHeader({
       }}
     >
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 18, fontWeight: "900", color: COLORS.text }}>
+        <Text
+          style={{
+            color: COLORS.text,
+            fontSize: 17,
+            fontWeight: "900",
+          }}
+        >
           {title}
         </Text>
+
         {subtitle ? (
-          <Text style={{ marginTop: 6, color: COLORS.muted, lineHeight: 20 }}>
+          <Text
+            style={{
+              marginTop: 5,
+              color: COLORS.muted,
+              fontSize: 13,
+              lineHeight: 19,
+            }}
+          >
             {subtitle}
           </Text>
         ) : null}
       </View>
 
-      {actionLabel && onPress ? (
-        <Pressable onPress={onPress}>
-          <Text style={{ color: COLORS.primary, fontWeight: "900" }}>
+      {actionLabel && onAction ? (
+        <Pressable
+          onPress={onAction}
+          disabled={actionDisabled}
+          style={{
+            minHeight: 36,
+            paddingHorizontal: 12,
+            borderRadius: 11,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: COLORS.softBlue,
+            opacity: actionDisabled ? 0.55 : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: COLORS.primary,
+              fontSize: 13,
+              fontWeight: "900",
+            }}
+          >
             {actionLabel}
           </Text>
         </Pressable>
@@ -144,168 +267,229 @@ function SectionHeader({
   );
 }
 
-function EmptyCard({ title, subtitle }: { title: string; subtitle: string }) {
+function StatusPill({
+  label,
+  backgroundColor,
+  color,
+}: {
+  label: string;
+  backgroundColor: string;
+  color: string;
+}) {
   return (
     <View
       style={{
-        backgroundColor: COLORS.card,
-        borderRadius: 20,
-        padding: 18,
-        borderWidth: 1,
-        borderColor: COLORS.border,
+        alignSelf: "flex-start",
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        backgroundColor,
       }}
     >
-      <View
+      <Text
         style={{
-          width: 48,
-          height: 48,
-          borderRadius: 14,
-          backgroundColor: COLORS.softBlue,
-          alignItems: "center",
-          justifyContent: "center",
+          color,
+          fontSize: 12,
+          fontWeight: "900",
         }}
       >
-        <View
-          style={{
-            width: 14,
-            height: 14,
-            borderRadius: 999,
-            backgroundColor: COLORS.primary,
-          }}
-        />
-      </View>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View
+      style={{
+        paddingVertical: 12,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: COLORS.border,
+      }}
+    >
+      <Text
+        style={{
+          color: COLORS.muted,
+          fontSize: 12,
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
 
       <Text
         style={{
-          marginTop: 14,
-          fontSize: 16,
-          fontWeight: "900",
+          marginTop: 5,
           color: COLORS.text,
+          fontSize: 15,
+          fontWeight: "800",
+          lineHeight: 21,
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <View
+      style={{
+        marginTop: 14,
+        borderRadius: 16,
+        padding: 14,
+        backgroundColor: COLORS.softGray,
+      }}
+    >
+      <Text
+        style={{
+          color: COLORS.text,
+          fontWeight: "900",
         }}
       >
         {title}
       </Text>
 
-      <Text style={{ marginTop: 8, color: COLORS.muted, lineHeight: 21 }}>
+      <Text
+        style={{
+          marginTop: 6,
+          color: COLORS.muted,
+          fontSize: 13,
+          lineHeight: 19,
+        }}
+      >
         {subtitle}
       </Text>
     </View>
   );
 }
 
-function PrimaryButton({
+function StatusAction({
   label,
-  onPress,
-  color,
+  active,
+  tone,
   disabled,
+  onPress,
 }: {
   label: string;
-  onPress: () => void;
-  color: string;
+  active: boolean;
+  tone: "primary" | "success" | "danger";
   disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!!disabled}
-      style={{
-        height: 46,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: color,
-        opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <Text style={{ color: "#fff", fontWeight: "900" }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function SmallBtn({
-  label,
-  onPress,
-  disabled,
-  variant = "ghost",
-}: {
-  label: string;
   onPress: () => void;
-  disabled?: boolean;
-  variant?: "ghost" | "warn" | "success";
 }) {
-  const backgroundColor =
-    variant === "warn"
-      ? COLORS.warning
-      : variant === "success"
-        ? COLORS.success
-        : "#fff";
+  const backgroundColor = active
+    ? tone === "success"
+      ? COLORS.softGreen
+      : tone === "danger"
+        ? COLORS.softRed
+        : COLORS.softBlue
+    : COLORS.card;
 
-  const borderColor =
-    variant === "ghost"
-      ? COLORS.border
-      : variant === "warn"
-        ? COLORS.warning
-        : COLORS.success;
-
-  const textColor = variant === "ghost" ? COLORS.text : "#fff";
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!!disabled}
-      style={{
-        flex: 1,
-        height: 38,
-        borderRadius: 12,
-        alignItems: "center",
-        justifyContent: "center",
-        borderWidth: 1,
-        borderColor,
-        backgroundColor,
-        opacity: disabled ? 0.6 : 1,
-      }}
-    >
-      <Text style={{ fontWeight: "900", color: textColor }}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function TaskStatusChip({ status }: { status: string }) {
-  const s = String(status || "").toLowerCase();
-
-  const color =
-    s === "done" || s === "completed"
+  const borderColor = active
+    ? tone === "success"
       ? COLORS.success
-      : s === "doing" || s === "in_progress"
-        ? COLORS.warning
+      : tone === "danger"
+        ? COLORS.error
+        : COLORS.primary
+    : COLORS.border;
+
+  const textColor =
+    tone === "success"
+      ? COLORS.success
+      : tone === "danger"
+        ? COLORS.error
         : COLORS.primary;
 
   return (
-    <View
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || active}
       style={{
-        alignSelf: "flex-start",
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 999,
+        flex: 1,
+        minHeight: 44,
+        borderRadius: 13,
         borderWidth: 1,
-        borderColor: COLORS.border,
-        backgroundColor: "#fff",
+        borderColor,
+        backgroundColor,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 8,
+        opacity: disabled ? 0.55 : 1,
       }}
     >
-      <Text style={{ fontWeight: "900", color }}>
-        {String(status || "todo").toUpperCase()}
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 13,
+          fontWeight: "900",
+          textAlign: "center",
+        }}
+      >
+        {active ? `${label} ✓` : label}
       </Text>
-    </View>
+    </Pressable>
+  );
+}
+
+function TaskStatusAction({
+  label,
+  active,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || active}
+      style={{
+        flex: 1,
+        minHeight: 38,
+        borderRadius: 11,
+        borderWidth: 1,
+        borderColor: active ? COLORS.primary : COLORS.border,
+        backgroundColor: active ? COLORS.softBlue : COLORS.card,
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <Text
+        style={{
+          color: active ? COLORS.primary : COLORS.muted,
+          fontSize: 12,
+          fontWeight: "900",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 export default function ProviderAppointmentDetail() {
   const { id } = useLocalSearchParams<{ id?: string }>();
+
   const appointmentId = useMemo(() => Number(id), [id]);
 
   const [busy, setBusy] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<AppointmentOut | null>(null);
+
   const [actionBusy, setActionBusy] = useState(false);
 
   const [tasksBusy, setTasksBusy] = useState(false);
@@ -323,16 +507,23 @@ export default function ProviderAppointmentDetail() {
   const [taskDueAt, setTaskDueAt] = useState("");
   const [taskSaving, setTaskSaving] = useState(false);
 
-  const currentStatus = String(data?.status ?? "").toLowerCase();
-  const appointmentBadge = statusMeta(data?.status);
-
   const validEpisodeId =
-    typeof data?.episode_id === "number" && Number.isFinite(data.episode_id)
+    typeof data?.episode_id === "number" &&
+    Number.isFinite(data.episode_id) &&
+    data.episode_id > 0
       ? data.episode_id
       : null;
 
+  const currentStatus = String(
+    data?.status || "scheduled",
+  ).toLowerCase() as AppointmentStatus;
+
+  const appointmentBadge = appointmentStatusMeta(data?.status);
+
   const loadTasks = useCallback(async () => {
-    if (!Number.isFinite(appointmentId) || appointmentId <= 0) return;
+    if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+      return;
+    }
 
     setTasksBusy(true);
     setTasksErr(null);
@@ -340,18 +531,20 @@ export default function ProviderAppointmentDetail() {
     try {
       const rows = await fetchAppointmentTasks(appointmentId);
       setTasks(rows ?? []);
-    } catch (e: any) {
-      const status = e?.response?.status;
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
       const detail =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Încărcarea taskurilor a eșuat.";
-      setTasksErr(String(detail));
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Încărcarea sarcinilor a eșuat.";
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
+        return;
       }
+
+      setTasksErr(String(detail));
     } finally {
       setTasksBusy(false);
     }
@@ -359,31 +552,40 @@ export default function ProviderAppointmentDetail() {
 
   const loadDocuments = useCallback(
     async (episodeId?: number | null) => {
-      if (!Number.isFinite(appointmentId) || appointmentId <= 0) return;
+      if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
+        return;
+      }
 
       setDocumentsBusy(true);
       setDocumentsErr(null);
 
       try {
-        let rows: MedicalDocumentOut[] = [];
-
-        if (typeof episodeId === "number" && Number.isFinite(episodeId)) {
-          rows = await fetchAppointmentDocuments(appointmentId, episodeId);
+        if (
+          typeof episodeId !== "number" ||
+          !Number.isFinite(episodeId) ||
+          episodeId <= 0
+        ) {
+          setDocuments([]);
+          return;
         }
+
+        const rows = await fetchAppointmentDocuments(appointmentId, episodeId);
 
         setDocuments(rows ?? []);
-      } catch (e: any) {
-        const status = e?.response?.status;
+      } catch (error: any) {
+        const responseStatus = error?.response?.status;
         const detail =
-          e?.response?.data?.detail ||
-          e?.message ||
+          error?.response?.data?.detail ||
+          error?.message ||
           "Încărcarea documentelor a eșuat.";
-        setDocumentsErr(String(detail));
 
-        if (status === 401) {
+        if (responseStatus === 401) {
           await clearToken();
           router.replace("/(auth)/login");
+          return;
         }
+
+        setDocumentsErr(String(detail));
       } finally {
         setDocumentsBusy(false);
       }
@@ -391,87 +593,73 @@ export default function ProviderAppointmentDetail() {
     [appointmentId],
   );
 
-  const load = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     if (!Number.isFinite(appointmentId) || appointmentId <= 0) {
       setBusy(false);
-      setErr("ID programare invalid.");
-      return null;
+      setErr("ID-ul programării este invalid.");
+      return;
     }
 
     setBusy(true);
     setErr(null);
 
     try {
-      const res = await fetchAppointment(appointmentId);
-      setData(res);
-      return res;
-    } catch (e: any) {
-      const status = e?.response?.status;
-      const detail =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Încărcarea programării a eșuat.";
-      setErr(String(detail));
+      const appointment = await fetchAppointment(appointmentId);
+      setData(appointment);
 
-      if (status === 401) {
+      const episodeId =
+        typeof appointment.episode_id === "number" &&
+        Number.isFinite(appointment.episode_id) &&
+        appointment.episode_id > 0
+          ? appointment.episode_id
+          : null;
+
+      await Promise.all([loadTasks(), loadDocuments(episodeId)]);
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
+      const detail =
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Programarea nu a putut fi încărcată.";
+
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
+        return;
       }
 
-      return null;
+      setErr(String(detail));
     } finally {
       setBusy(false);
     }
-  }, [appointmentId]);
-
-  const loadAll = useCallback(async () => {
-    const appointment = await load();
-
-    const resolvedEpisodeId =
-      appointment &&
-      typeof appointment.episode_id === "number" &&
-      Number.isFinite(appointment.episode_id)
-        ? appointment.episode_id
-        : typeof data?.episode_id === "number" &&
-            Number.isFinite(data.episode_id)
-          ? data.episode_id
-          : null;
-
-    await Promise.all([loadTasks(), loadDocuments(resolvedEpisodeId)]);
-  }, [data?.episode_id, load, loadDocuments, loadTasks]);
+  }, [appointmentId, loadDocuments, loadTasks]);
 
   useEffect(() => {
-    loadAll();
+    void loadAll();
   }, [loadAll]);
 
   const setStatus = useCallback(
-    async (nextStatus: string) => {
-      if (!data) return;
+    async (nextStatus: AppointmentStatus) => {
+      if (!data || actionBusy) return;
 
-      const next = String(nextStatus).toLowerCase();
-      const curr = String(data.status ?? "").toLowerCase();
-
-      if (next === curr) {
-        Alert.alert(
-          "Info",
-          `Programarea este deja în statusul "${data.status}".`,
-        );
+      if (currentStatus === nextStatus) {
         return;
       }
 
       setActionBusy(true);
+
       try {
-        const updated = await updateAppointmentStatus(data.id, next);
+        const updated = await updateAppointmentStatus(data.id, nextStatus);
+
         setData(updated);
-        await loadAll();
-      } catch (e: any) {
-        const status = e?.response?.status;
+      } catch (error: any) {
+        const responseStatus = error?.response?.status;
         const detail =
-          e?.response?.data?.detail ||
-          e?.message ||
+          error?.response?.data?.detail ||
+          error?.message ||
           "Actualizarea statusului a eșuat.";
 
-        if (status === 401) {
+        if (responseStatus === 401) {
           await clearToken();
           router.replace("/(auth)/login");
           return;
@@ -482,25 +670,28 @@ export default function ProviderAppointmentDetail() {
         setActionBusy(false);
       }
     },
-    [data, loadAll],
+    [actionBusy, currentStatus, data],
   );
 
-  async function setTaskStatus(taskId: number, nextStatus: string) {
-    if (!taskId) return;
-    if (taskActionId === taskId) return;
+  async function setTaskStatus(taskId: number, nextStatus: TaskStatus) {
+    if (!taskId || taskActionId === taskId) return;
 
     setTaskActionId(taskId);
-    try {
-      await updateEpisodeTask(taskId, { status: nextStatus });
-      await loadTasks();
-    } catch (e: any) {
-      const status = e?.response?.status;
-      const detail =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Actualizarea taskului a eșuat.";
 
-      if (status === 401) {
+    try {
+      await updateEpisodeTask(taskId, {
+        status: nextStatus,
+      });
+
+      await loadTasks();
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
+      const detail =
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Actualizarea sarcinii a eșuat.";
+
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
         return;
@@ -512,22 +703,37 @@ export default function ProviderAppointmentDetail() {
     }
   }
 
-  function openEpisode(episodeIdValue: number) {
-    router.push({
-      pathname: "/(provider)/episode/[id]",
-      params: { id: String(episodeIdValue) },
-    });
-  }
-
-  function openPatientJourney() {
+  function openPatientHistory() {
     if (!data?.patient_id) {
-      Alert.alert("Eroare", "Această programare nu are pacient asociat.");
+      Alert.alert(
+        "Pacient lipsă",
+        "Această programare nu are un pacient asociat.",
+      );
       return;
     }
 
     router.push({
       pathname: "/(provider)/patient/[id]/journey",
-      params: { id: String(data.patient_id) },
+      params: {
+        id: String(data.patient_id),
+      },
+    });
+  }
+
+  function openEpisode() {
+    if (validEpisodeId === null) {
+      Alert.alert(
+        "Episod lipsă",
+        "Această programare nu are un episod asociat.",
+      );
+      return;
+    }
+
+    router.push({
+      pathname: "/(provider)/episode/[id]",
+      params: {
+        id: String(validEpisodeId),
+      },
     });
   }
 
@@ -539,34 +745,33 @@ export default function ProviderAppointmentDetail() {
 
   async function submitTask() {
     const title = taskTitle.trim();
+
     if (title.length < 3) {
       Alert.alert(
-        "Lipsește titlul",
-        "Titlul taskului trebuie să aibă minim 3 caractere.",
+        "Titlu incomplet",
+        "Titlul sarcinii trebuie să conțină cel puțin 3 caractere.",
       );
       return;
     }
 
-    let dueIso: string | null = null;
-    const raw = taskDueAt.trim();
+    let dueAt: string | null = null;
+    const rawDueAt = taskDueAt.trim();
 
-    if (raw.length > 0) {
+    if (rawDueAt) {
       try {
-        dueIso = normalizeUserInputToNaiveIso(raw);
+        dueAt = normalizeUserInputToNaiveIso(rawDueAt);
       } catch {
-        Alert.alert(
-          "Dată invalidă",
-          "În câmpul „Due at” scrie, de exemplu: 2026-03-10 14:30 sau 2026-03-10T14:30:00.",
-        );
+        Alert.alert("Dată invalidă", "Folosește formatul 2026-07-20 14:30.");
         return;
       }
     }
 
     setTaskSaving(true);
+
     try {
       await createAppointmentTask(appointmentId, {
         title,
-        due_at: dueIso,
+        due_at: dueAt,
         assigned_to_role: "provider",
       });
 
@@ -574,15 +779,15 @@ export default function ProviderAppointmentDetail() {
       setTaskTitle("");
       setTaskDueAt("");
 
-      await loadAll();
-
-      Alert.alert("Succes", "Taskul a fost adăugat la programare.");
-    } catch (e: any) {
-      const status = e?.response?.status;
+      await loadTasks();
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
       const detail =
-        e?.response?.data?.detail || e?.message || "Crearea taskului a eșuat.";
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Sarcina nu a putut fi creată.";
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
         return;
@@ -596,36 +801,47 @@ export default function ProviderAppointmentDetail() {
 
   async function openDocument(url?: string | null) {
     if (!url) {
-      Alert.alert("Eroare", "Linkul documentului lipsește.");
+      Alert.alert("Document indisponibil", "Linkul documentului lipsește.");
       return;
     }
 
     try {
       const supported = await Linking.canOpenURL(url);
+
       if (!supported) {
-        Alert.alert("Eroare", "Documentul nu poate fi deschis.");
+        Alert.alert(
+          "Document indisponibil",
+          "Documentul nu poate fi deschis pe acest dispozitiv.",
+        );
         return;
       }
+
       await Linking.openURL(url);
     } catch {
-      Alert.alert("Eroare", "Nu s-a putut deschide documentul.");
+      Alert.alert("Eroare", "Documentul nu a putut fi deschis.");
     }
   }
 
-  async function onUploadDocument() {
-    if (!Number.isFinite(appointmentId) || appointmentId <= 0) return;
-    if (documentUploading) return;
+  async function uploadDocument() {
+    if (
+      !Number.isFinite(appointmentId) ||
+      appointmentId <= 0 ||
+      documentUploading
+    ) {
+      return;
+    }
 
     if (validEpisodeId === null) {
       Alert.alert(
         "Episod lipsă",
-        "Această programare nu are încă episod asociat, deci PDF-ul nu poate fi încărcat.",
+        "Pentru încărcarea unui document, programarea trebuie asociată unui episod.",
       );
       return;
     }
 
     try {
       const picked = await pickPdfDocument();
+
       if (!picked) return;
 
       setDocumentUploading(true);
@@ -639,15 +855,14 @@ export default function ProviderAppointmentDetail() {
       });
 
       await loadDocuments(validEpisodeId);
-      Alert.alert("Succes", "Documentul a fost încărcat.");
-    } catch (e: any) {
-      const status = e?.response?.status;
+    } catch (error: any) {
+      const responseStatus = error?.response?.status;
       const detail =
-        e?.response?.data?.detail ||
-        e?.message ||
-        "Încărcarea documentului a eșuat.";
+        error?.response?.data?.detail ||
+        error?.message ||
+        "Documentul nu a putut fi încărcat.";
 
-      if (status === 401) {
+      if (responseStatus === 401) {
         await clearToken();
         router.replace("/(auth)/login");
         return;
@@ -660,7 +875,12 @@ export default function ProviderAppointmentDetail() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: COLORS.bg,
+      }}
+    >
       <View
         style={{
           paddingTop: 14,
@@ -668,47 +888,69 @@ export default function ProviderAppointmentDetail() {
           paddingBottom: 12,
           borderBottomWidth: 1,
           borderBottomColor: COLORS.border,
-          backgroundColor: "#fff",
+          backgroundColor: COLORS.card,
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
           gap: 12,
         }}
       >
         <Pressable
           onPress={() => router.back()}
           style={{
-            height: 36,
+            height: 38,
             paddingHorizontal: 12,
             borderRadius: 12,
             borderWidth: 1,
             borderColor: COLORS.border,
+            backgroundColor: COLORS.card,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: "#fff",
           }}
         >
-          <Text style={{ fontWeight: "900", color: COLORS.text }}>Înapoi</Text>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+            }}
+          >
+            Înapoi
+          </Text>
         </Pressable>
 
-        <Text style={{ fontSize: 18, fontWeight: "900", color: COLORS.text }}>
-          Programare #{Number.isFinite(appointmentId) ? appointmentId : "?"}
+        <Text
+          numberOfLines={1}
+          style={{
+            flex: 1,
+            color: COLORS.text,
+            fontSize: 17,
+            fontWeight: "900",
+            textAlign: "center",
+          }}
+        >
+          Detalii programare
         </Text>
 
         <Pressable
-          onPress={loadAll}
+          onPress={() => void loadAll()}
+          disabled={busy}
           style={{
-            height: 36,
+            height: 38,
             paddingHorizontal: 12,
             borderRadius: 12,
             borderWidth: 1,
             borderColor: COLORS.border,
+            backgroundColor: COLORS.card,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: "#fff",
+            opacity: busy ? 0.55 : 1,
           }}
         >
-          <Text style={{ fontWeight: "900", color: COLORS.text }}>
+          <Text
+            style={{
+              color: COLORS.text,
+              fontWeight: "900",
+            }}
+          >
             Reîncarcă
           </Text>
         </Pressable>
@@ -724,52 +966,84 @@ export default function ProviderAppointmentDetail() {
           }}
         >
           <ActivityIndicator size="large" color={COLORS.primary} />
+
           <Text
             style={{
               marginTop: 12,
               color: COLORS.muted,
               fontWeight: "700",
-              textAlign: "center",
             }}
           >
             Se încarcă programarea...
           </Text>
         </View>
       ) : err ? (
-        <View style={{ flex: 1, padding: 16 }}>
+        <View style={{ padding: 16 }}>
           <View
             style={{
               backgroundColor: COLORS.card,
-              borderRadius: 20,
-              padding: 18,
+              borderRadius: 18,
               borderWidth: 1,
               borderColor: COLORS.border,
+              padding: 16,
             }}
           >
             <Text
-              style={{ color: COLORS.error, fontWeight: "900", fontSize: 16 }}
+              style={{
+                color: COLORS.error,
+                fontSize: 16,
+                fontWeight: "900",
+              }}
             >
-              A apărut o eroare
+              Programarea nu a putut fi încărcată
             </Text>
-            <Text style={{ marginTop: 8, color: COLORS.text, lineHeight: 21 }}>
+
+            <Text
+              style={{
+                marginTop: 8,
+                color: COLORS.text,
+                lineHeight: 21,
+              }}
+            >
               {err}
             </Text>
+
+            <Pressable
+              onPress={() => void loadAll()}
+              style={{
+                marginTop: 14,
+                height: 44,
+                borderRadius: 14,
+                backgroundColor: COLORS.primary,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: "#FFFFFF",
+                  fontWeight: "900",
+                }}
+              >
+                Încearcă din nou
+              </Text>
+            </Pressable>
           </View>
         </View>
       ) : !data ? null : (
         <ScrollView
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingTop: 18,
-            paddingBottom: 28,
-            gap: 16,
+            paddingTop: 16,
+            paddingBottom: 34,
+            gap: 14,
           }}
-          showsVerticalScrollIndicator={false}
         >
           <View
             style={{
               backgroundColor: COLORS.primaryDark,
-              borderRadius: 28,
+              borderRadius: 26,
               padding: 20,
               overflow: "hidden",
             }}
@@ -777,43 +1051,45 @@ export default function ProviderAppointmentDetail() {
             <View
               style={{
                 position: "absolute",
-                right: -40,
-                top: -10,
                 width: 180,
                 height: 180,
                 borderRadius: 999,
-                backgroundColor: "rgba(79,179,232,0.18)",
+                top: -70,
+                right: -45,
+                backgroundColor: "rgba(47,107,255,0.30)",
               }}
             />
+
             <View
               style={{
                 position: "absolute",
-                left: -30,
-                bottom: -40,
-                width: 180,
-                height: 180,
+                width: 160,
+                height: 160,
                 borderRadius: 999,
-                backgroundColor: "rgba(47,107,255,0.16)",
+                bottom: -105,
+                left: -50,
+                backgroundColor: "rgba(255,255,255,0.08)",
               }}
             />
 
             <View style={{ zIndex: 2 }}>
               <Text
                 style={{
-                  color: "rgba(255,255,255,0.78)",
-                  fontWeight: "700",
-                  fontSize: 13,
+                  color: "rgba(255,255,255,0.68)",
+                  fontSize: 12,
+                  fontWeight: "800",
+                  letterSpacing: 0.6,
                 }}
               >
-                PROGRAMARE
+                PROGRAMARE MEDICALĂ
               </Text>
 
               <Text
                 style={{
                   marginTop: 8,
-                  color: "#fff",
-                  fontSize: 28,
-                  lineHeight: 34,
+                  color: "#FFFFFF",
+                  fontSize: 27,
+                  lineHeight: 33,
                   fontWeight: "900",
                 }}
               >
@@ -822,271 +1098,297 @@ export default function ProviderAppointmentDetail() {
 
               <Text
                 style={{
-                  marginTop: 12,
-                  color: "rgba(255,255,255,0.82)",
-                  lineHeight: 21,
-                  maxWidth: "88%",
+                  marginTop: 16,
+                  color: "#FFFFFF",
+                  fontSize: 22,
+                  fontWeight: "900",
                 }}
               >
-                Furnizor: {data.provider_name || `#${data.provider_id}`}
-                {"\n"}
-                Medic: {doctorLabel(data)}
+                {formatTime(data.start_time)}
+                {data.end_time ? ` – ${formatTime(data.end_time)}` : ""}
               </Text>
 
-              <View
+              <Text
                 style={{
-                  marginTop: 16,
-                  alignSelf: "flex-start",
+                  marginTop: 6,
+                  color: "rgba(255,255,255,0.82)",
+                  fontSize: 14,
+                  lineHeight: 20,
+                }}
+              >
+                {formatDate(data.start_time)}
+              </Text>
+
+              <View style={{ marginTop: 16 }}>
+                <StatusPill
+                  label={appointmentBadge.label}
+                  backgroundColor={appointmentBadge.backgroundColor}
+                  color={appointmentBadge.color}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              paddingHorizontal: 16,
+            }}
+          >
+            <InfoRow label="Furnizor" value={providerLabel(data)} />
+
+            <InfoRow label="Medic" value={doctorLabel(data)} last />
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 16,
+            }}
+          >
+            <SectionHeader
+              title="Dosarul pacientului"
+              subtitle="Acces la episoadele și istoricul medical disponibil."
+            />
+
+            <View
+              style={{
+                marginTop: 14,
+                flexDirection: "row",
+                gap: 10,
+              }}
+            >
+              <Pressable
+                onPress={openPatientHistory}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 13,
+                  backgroundColor: COLORS.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
                   paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  backgroundColor: appointmentBadge.bg,
                 }}
               >
                 <Text
                   style={{
-                    color: appointmentBadge.text,
+                    color: "#FFFFFF",
+                    fontSize: 13,
                     fontWeight: "900",
-                    fontSize: 12,
+                    textAlign: "center",
                   }}
                 >
-                  {appointmentBadge.label}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View
-            style={{
-              flexDirection: "row",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            <View
-              style={{
-                flex: 1,
-                minWidth: "47%",
-                backgroundColor: COLORS.card,
-                borderRadius: 20,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-            >
-              <Text style={{ color: COLORS.muted, fontSize: 12 }}>Start</Text>
-              <Text
-                style={{
-                  marginTop: 6,
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: 15,
-                }}
-              >
-                {fmt(data.start_time)}
-              </Text>
-            </View>
-
-            <View
-              style={{
-                flex: 1,
-                minWidth: "47%",
-                backgroundColor: COLORS.card,
-                borderRadius: 20,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: COLORS.border,
-              }}
-            >
-              <Text style={{ color: COLORS.muted, fontSize: 12 }}>Sfârșit</Text>
-              <Text
-                style={{
-                  marginTop: 6,
-                  color: COLORS.text,
-                  fontWeight: "900",
-                  fontSize: 15,
-                }}
-              >
-                {data.end_time ? fmt(data.end_time) : "-"}
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 20,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-              gap: 12,
-            }}
-          >
-            <SectionHeader
-              title="Profil pacient"
-              subtitle="Acces rapid la profil, Journey și episodul asociat acestei programări."
-            />
-
-            <Text style={{ color: COLORS.muted }}>
-              Programare #{data.id}
-              {validEpisodeId !== null ? ` • Episod #${validEpisodeId}` : ""}
-            </Text>
-
-            <Pressable
-              onPress={openPatientJourney}
-              style={{
-                height: 44,
-                borderRadius: 14,
-                backgroundColor: COLORS.primary,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Text style={{ fontWeight: "900", color: "#fff" }}>
-                Deschide Journey
-              </Text>
-            </Pressable>
-
-            {validEpisodeId !== null ? (
-              <Pressable
-                onPress={() => openEpisode(validEpisodeId)}
-                style={{
-                  height: 44,
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor: COLORS.border,
-                  backgroundColor: "#fff",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                  Deschide episodul
+                  Istoric pacient
                 </Text>
               </Pressable>
-            ) : (
-              <Text style={{ color: COLORS.warning, fontWeight: "800" }}>
-                Această programare nu are episod asociat.
-              </Text>
-            )}
-          </View>
 
-          <View
-            style={{
-              backgroundColor: COLORS.card,
-              borderRadius: 20,
-              padding: 16,
-              borderWidth: 1,
-              borderColor: COLORS.border,
-            }}
-          >
-            <SectionHeader
-              title="Cererea pacientului / Note"
-              subtitle="Observațiile lăsate la creare sau ulterior."
-            />
-
-            {data.notes?.trim() ? (
-              <Text
+              <Pressable
+                onPress={openEpisode}
+                disabled={validEpisodeId === null}
                 style={{
-                  marginTop: 12,
-                  color: COLORS.text,
-                  lineHeight: 21,
+                  flex: 1,
+                  minHeight: 44,
+                  borderRadius: 13,
+                  borderWidth: 1,
+                  borderColor: COLORS.border,
+                  backgroundColor: COLORS.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  paddingHorizontal: 10,
+                  opacity: validEpisodeId === null ? 0.45 : 1,
                 }}
               >
-                {data.notes}
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontSize: 13,
+                    fontWeight: "900",
+                    textAlign: "center",
+                  }}
+                >
+                  Episod asociat
+                </Text>
+              </Pressable>
+            </View>
+
+            {validEpisodeId === null ? (
+              <Text
+                style={{
+                  marginTop: 10,
+                  color: COLORS.warning,
+                  fontSize: 12,
+                  lineHeight: 18,
+                }}
+              >
+                Programarea nu este asociată încă unui episod medical.
               </Text>
-            ) : (
-              <Text style={{ marginTop: 12, color: COLORS.muted }}>
-                Nu există observații introduse.
-              </Text>
-            )}
+            ) : null}
           </View>
 
           <View
             style={{
               backgroundColor: COLORS.card,
               borderRadius: 20,
-              padding: 16,
               borderWidth: 1,
               borderColor: COLORS.border,
+              padding: 16,
             }}
           >
             <SectionHeader
-              title="Documente PDF"
-              subtitle="Documentele încărcate pentru această programare."
-              actionLabel={documentUploading ? "Se încarcă..." : "+ PDF"}
-              onPress={documentUploading ? undefined : onUploadDocument}
+              title="Motivul programării"
+              subtitle="Observațiile introduse la rezervarea programării."
+            />
+
+            <Text
+              style={{
+                marginTop: 14,
+                color: data.notes?.trim() ? COLORS.text : COLORS.muted,
+                fontSize: 14,
+                lineHeight: 21,
+              }}
+            >
+              {data.notes?.trim() ||
+                "Pacientul nu a introdus observații pentru această programare."}
+            </Text>
+          </View>
+
+          <View
+            style={{
+              backgroundColor: COLORS.card,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              padding: 16,
+            }}
+          >
+            <SectionHeader
+              title="Documente"
+              subtitle="Fișiere PDF asociate consultației."
+              actionLabel={documentUploading ? "Se încarcă..." : "Adaugă PDF"}
+              onAction={() => void uploadDocument()}
+              actionDisabled={documentUploading || validEpisodeId === null}
             />
 
             {documentsBusy ? (
-              <View style={{ marginTop: 14, alignItems: "center" }}>
+              <View
+                style={{
+                  marginTop: 16,
+                  alignItems: "center",
+                }}
+              >
                 <ActivityIndicator color={COLORS.primary} />
-                <Text style={{ marginTop: 8, color: COLORS.muted }}>
+
+                <Text
+                  style={{
+                    marginTop: 8,
+                    color: COLORS.muted,
+                    fontSize: 13,
+                  }}
+                >
                   Se încarcă documentele...
                 </Text>
               </View>
             ) : documentsErr ? (
-              <View style={{ marginTop: 12 }}>
-                <Text style={{ color: COLORS.error, fontWeight: "900" }}>
-                  Eroare
-                </Text>
-                <Text style={{ marginTop: 6, color: COLORS.text }}>
-                  {documentsErr}
-                </Text>
-              </View>
+              <Text
+                style={{
+                  marginTop: 14,
+                  color: COLORS.error,
+                  lineHeight: 20,
+                }}
+              >
+                {documentsErr}
+              </Text>
             ) : documents.length === 0 ? (
-              <View style={{ marginTop: 12 }}>
-                <EmptyCard
-                  title="Nu există documente încărcate"
-                  subtitle={
-                    validEpisodeId !== null
-                      ? "Poți adăuga un PDF folosind butonul de sus."
-                      : "Mai întâi programarea trebuie să aibă un episod asociat."
-                  }
-                />
-              </View>
+              <EmptyState
+                title="Nu există documente"
+                subtitle={
+                  validEpisodeId === null
+                    ? "Asociază programarea unui episod pentru a putea adăuga documente."
+                    : "Poți încărca primul document folosind butonul de mai sus."
+                }
+              />
             ) : (
-              <View style={{ marginTop: 12, gap: 10 }}>
-                {documents.map((doc) => (
-                  <View
-                    key={doc.id}
+              <View
+                style={{
+                  marginTop: 14,
+                  gap: 8,
+                }}
+              >
+                {documents.map((document) => (
+                  <Pressable
+                    key={document.id}
+                    onPress={() => void openDocument(document.file_url)}
                     style={{
+                      borderRadius: 15,
                       borderWidth: 1,
                       borderColor: COLORS.border,
-                      borderRadius: 16,
-                      padding: 12,
-                      backgroundColor: "#fff",
+                      backgroundColor: COLORS.card,
+                      padding: 13,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
                     }}
                   >
-                    <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                      {doc.file_name}
-                    </Text>
-
-                    <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                      Încărcat la: {fmt(doc.created_at)}
-                    </Text>
-
-                    <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                      Programare #{doc.appointment_id ?? "-"} • Episod #
-                      {doc.episode_id}
-                    </Text>
-
-                    <Pressable
-                      onPress={() => openDocument(doc.file_url)}
+                    <View
                       style={{
-                        marginTop: 10,
+                        width: 40,
                         height: 40,
                         borderRadius: 12,
+                        backgroundColor: COLORS.softRed,
                         alignItems: "center",
                         justifyContent: "center",
-                        backgroundColor: COLORS.primary,
                       }}
                     >
-                      <Text style={{ color: "#fff", fontWeight: "900" }}>
-                        Deschide PDF
+                      <Text
+                        style={{
+                          color: COLORS.error,
+                          fontSize: 11,
+                          fontWeight: "900",
+                        }}
+                      >
+                        PDF
                       </Text>
-                    </Pressable>
-                  </View>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        numberOfLines={2}
+                        style={{
+                          color: COLORS.text,
+                          fontWeight: "900",
+                          lineHeight: 20,
+                        }}
+                      >
+                        {cleanText(document.file_name) || "Document medical"}
+                      </Text>
+
+                      <Text
+                        style={{
+                          marginTop: 4,
+                          color: COLORS.muted,
+                          fontSize: 12,
+                        }}
+                      >
+                        {formatDateTime(document.created_at)}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={{
+                        color: COLORS.primary,
+                        fontSize: 18,
+                        fontWeight: "900",
+                      }}
+                    >
+                      ›
+                    </Text>
+                  </Pressable>
                 ))}
               </View>
             )}
@@ -1096,121 +1398,149 @@ export default function ProviderAppointmentDetail() {
             style={{
               backgroundColor: COLORS.card,
               borderRadius: 20,
-              padding: 16,
               borderWidth: 1,
               borderColor: COLORS.border,
+              padding: 16,
             }}
           >
             <SectionHeader
-              title="Taskuri programare"
-              subtitle="Sarcini rapide legate de această programare."
-              actionLabel="+ Task"
-              onPress={openAddTask}
+              title="Sarcini"
+              subtitle="Acțiuni care trebuie realizate după consultație."
+              actionLabel="Adaugă"
+              onAction={openAddTask}
             />
 
             {tasksBusy ? (
-              <View style={{ marginTop: 14, alignItems: "center" }}>
+              <View
+                style={{
+                  marginTop: 16,
+                  alignItems: "center",
+                }}
+              >
                 <ActivityIndicator color={COLORS.primary} />
-                <Text style={{ marginTop: 8, color: COLORS.muted }}>
-                  Se încarcă taskurile...
+
+                <Text
+                  style={{
+                    marginTop: 8,
+                    color: COLORS.muted,
+                    fontSize: 13,
+                  }}
+                >
+                  Se încarcă sarcinile...
                 </Text>
               </View>
             ) : tasksErr ? (
-              <View style={{ marginTop: 12 }}>
-                <Text style={{ color: COLORS.error, fontWeight: "900" }}>
-                  Eroare
-                </Text>
-                <Text style={{ marginTop: 6, color: COLORS.text }}>
-                  {tasksErr}
-                </Text>
-              </View>
+              <Text
+                style={{
+                  marginTop: 14,
+                  color: COLORS.error,
+                  lineHeight: 20,
+                }}
+              >
+                {tasksErr}
+              </Text>
             ) : tasks.length === 0 ? (
-              <View style={{ marginTop: 12 }}>
-                <EmptyCard
-                  title="Nu există taskuri pentru această programare"
-                  subtitle="Poți adăuga rapid un task nou din butonul de sus."
-                />
-              </View>
+              <EmptyState
+                title="Nu există sarcini"
+                subtitle="Adaugă o sarcină numai dacă este necesară o acțiune ulterioară."
+              />
             ) : (
-              <View style={{ marginTop: 12, gap: 10 }}>
+              <View
+                style={{
+                  marginTop: 14,
+                  gap: 10,
+                }}
+              >
                 {tasks.map((task) => {
-                  const taskStatus = String(task.status || "").toLowerCase();
-                  const busyThis = taskActionId === task.id;
+                  const normalizedStatus = String(
+                    task.status || "todo",
+                  ).toLowerCase();
+
+                  const taskBadge = taskStatusMeta(task.status);
+                  const busyThisTask = taskActionId === task.id;
 
                   return (
                     <View
                       key={task.id}
                       style={{
+                        borderRadius: 16,
                         borderWidth: 1,
                         borderColor: COLORS.border,
-                        borderRadius: 16,
-                        padding: 12,
-                        backgroundColor: "#fff",
+                        backgroundColor: COLORS.card,
+                        padding: 13,
                       }}
                     >
                       <View
                         style={{
                           flexDirection: "row",
+                          alignItems: "flex-start",
                           justifyContent: "space-between",
-                          gap: 12,
+                          gap: 10,
                         }}
                       >
                         <View style={{ flex: 1 }}>
                           <Text
-                            style={{ fontWeight: "900", color: COLORS.text }}
+                            style={{
+                              color: COLORS.text,
+                              fontWeight: "900",
+                              lineHeight: 20,
+                            }}
                           >
-                            {task.title}
-                          </Text>
-
-                          <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                            Task #{task.id}
-                            {task.episode_id
-                              ? ` • Episod ${task.episode_id}`
-                              : ""}
+                            {cleanText(task.title) || "Sarcină"}
                           </Text>
 
                           {task.due_at ? (
-                            <Text style={{ marginTop: 6, color: COLORS.muted }}>
-                              Termen: {fmt(task.due_at)}
+                            <Text
+                              style={{
+                                marginTop: 5,
+                                color: COLORS.muted,
+                                fontSize: 12,
+                              }}
+                            >
+                              Termen: {formatDateTime(task.due_at)}
                             </Text>
                           ) : null}
                         </View>
 
-                        <TaskStatusChip status={task.status} />
+                        <StatusPill
+                          label={taskBadge.label}
+                          backgroundColor={taskBadge.backgroundColor}
+                          color={taskBadge.color}
+                        />
                       </View>
 
                       <View
                         style={{
+                          marginTop: 12,
                           flexDirection: "row",
                           gap: 8,
-                          marginTop: 10,
                         }}
                       >
-                        <SmallBtn
+                        <TaskStatusAction
                           label="De făcut"
-                          variant="ghost"
-                          disabled={busyThis || taskStatus === "todo"}
-                          onPress={() => setTaskStatus(task.id, "todo")}
+                          active={normalizedStatus === "todo"}
+                          disabled={busyThisTask}
+                          onPress={() => void setTaskStatus(task.id, "todo")}
                         />
-                        <SmallBtn
+
+                        <TaskStatusAction
                           label="În lucru"
-                          variant="warn"
-                          disabled={
-                            busyThis ||
-                            taskStatus === "doing" ||
-                            taskStatus === "in_progress"
+                          active={
+                            normalizedStatus === "doing" ||
+                            normalizedStatus === "in_progress"
                           }
-                          onPress={() => setTaskStatus(task.id, "doing")}
+                          disabled={busyThisTask}
+                          onPress={() => void setTaskStatus(task.id, "doing")}
                         />
-                        <SmallBtn
+
+                        <TaskStatusAction
                           label="Gata"
-                          variant="success"
-                          disabled={
-                            busyThis ||
-                            taskStatus === "done" ||
-                            taskStatus === "completed"
+                          active={
+                            normalizedStatus === "done" ||
+                            normalizedStatus === "completed"
                           }
-                          onPress={() => setTaskStatus(task.id, "done")}
+                          disabled={busyThisTask}
+                          onPress={() => void setTaskStatus(task.id, "done")}
                         />
                       </View>
                     </View>
@@ -1224,41 +1554,65 @@ export default function ProviderAppointmentDetail() {
             style={{
               backgroundColor: COLORS.card,
               borderRadius: 20,
-              padding: 16,
               borderWidth: 1,
               borderColor: COLORS.border,
-              gap: 10,
+              padding: 16,
             }}
           >
             <SectionHeader
-              title="Schimbă statusul"
-              subtitle="Actualizează rapid starea curentă a programării."
+              title="Statusul programării"
+              subtitle="Actualizează starea consultației pe măsură ce aceasta avansează."
             />
 
-            <PrimaryButton
-              label={
-                currentStatus === "in_progress"
-                  ? "În desfășurare ✓"
-                  : "În desfășurare"
-              }
-              color={COLORS.warning}
-              disabled={actionBusy}
-              onPress={() => setStatus("in_progress")}
-            />
-            <PrimaryButton
-              label={
-                currentStatus === "completed" ? "Finalizată ✓" : "Finalizată"
-              }
-              color={COLORS.success}
-              disabled={actionBusy}
-              onPress={() => setStatus("completed")}
-            />
-            <PrimaryButton
-              label={currentStatus === "canceled" ? "Anulată ✓" : "Anulată"}
-              color={COLORS.error}
-              disabled={actionBusy}
-              onPress={() => setStatus("canceled")}
-            />
+            <View
+              style={{
+                marginTop: 14,
+                flexDirection: "row",
+                gap: 8,
+              }}
+            >
+              <StatusAction
+                label="În desfășurare"
+                tone="primary"
+                active={currentStatus === "in_progress"}
+                disabled={actionBusy}
+                onPress={() => void setStatus("in_progress")}
+              />
+
+              <StatusAction
+                label="Finalizată"
+                tone="success"
+                active={currentStatus === "completed"}
+                disabled={actionBusy}
+                onPress={() => void setStatus("completed")}
+              />
+            </View>
+
+            <View style={{ marginTop: 8 }}>
+              <StatusAction
+                label="Anulează programarea"
+                tone="danger"
+                active={currentStatus === "canceled"}
+                disabled={actionBusy}
+                onPress={() => {
+                  Alert.alert(
+                    "Anulezi programarea?",
+                    "Programarea va fi marcată ca anulată.",
+                    [
+                      {
+                        text: "Renunță",
+                        style: "cancel",
+                      },
+                      {
+                        text: "Anulează programarea",
+                        style: "destructive",
+                        onPress: () => void setStatus("canceled"),
+                      },
+                    ],
+                  );
+                }}
+              />
+            </View>
           </View>
         </ScrollView>
       )}
@@ -1267,12 +1621,16 @@ export default function ProviderAppointmentDetail() {
         visible={taskModalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => !taskSaving && setTaskModalOpen(false)}
+        onRequestClose={() => {
+          if (!taskSaving) {
+            setTaskModalOpen(false);
+          }
+        }}
       >
         <View
           style={{
             flex: 1,
-            backgroundColor: "rgba(0,0,0,0.35)",
+            backgroundColor: "rgba(15,23,42,0.45)",
             padding: 16,
             alignItems: "center",
             justifyContent: "center",
@@ -1282,105 +1640,144 @@ export default function ProviderAppointmentDetail() {
             style={{
               width: "100%",
               maxWidth: 520,
-              backgroundColor: "#fff",
-              borderRadius: 20,
-              padding: 18,
+              borderRadius: 22,
               borderWidth: 1,
               borderColor: COLORS.border,
+              backgroundColor: COLORS.card,
+              padding: 18,
             }}
           >
             <Text
-              style={{ fontSize: 20, fontWeight: "900", color: COLORS.text }}
+              style={{
+                color: COLORS.text,
+                fontSize: 20,
+                fontWeight: "900",
+              }}
             >
-              Adaugă task
-            </Text>
-
-            <Text style={{ marginTop: 10, color: COLORS.muted }}>
-              Programare #{appointmentId}
+              Adaugă o sarcină
             </Text>
 
             <Text
-              style={{ marginTop: 12, color: COLORS.muted, fontWeight: "800" }}
+              style={{
+                marginTop: 7,
+                color: COLORS.muted,
+                lineHeight: 20,
+              }}
+            >
+              Creează o acțiune de urmărit după consultație.
+            </Text>
+
+            <Text
+              style={{
+                marginTop: 16,
+                color: COLORS.text,
+                fontSize: 13,
+                fontWeight: "800",
+              }}
             >
               Titlu
             </Text>
+
             <TextInput
               value={taskTitle}
               onChangeText={setTaskTitle}
-              placeholder="Ex.: control, analiză, verificare..."
+              placeholder="Ex.: Verifică rezultatul analizelor"
+              placeholderTextColor="#94A3B8"
               editable={!taskSaving}
               style={{
-                marginTop: 8,
-                height: 48,
-                borderRadius: 14,
+                marginTop: 7,
+                minHeight: 48,
+                borderRadius: 13,
                 borderWidth: 1,
                 borderColor: COLORS.border,
+                backgroundColor: COLORS.card,
                 paddingHorizontal: 12,
                 color: COLORS.text,
-                backgroundColor: "#fff",
-                opacity: taskSaving ? 0.7 : 1,
               }}
             />
 
             <Text
-              style={{ marginTop: 12, color: COLORS.muted, fontWeight: "800" }}
+              style={{
+                marginTop: 14,
+                color: COLORS.text,
+                fontSize: 13,
+                fontWeight: "800",
+              }}
             >
-              Due at (opțional)
+              Termen opțional
             </Text>
+
             <TextInput
               value={taskDueAt}
               onChangeText={setTaskDueAt}
-              placeholder="2026-03-10 14:30"
+              placeholder="2026-07-20 14:30"
+              placeholderTextColor="#94A3B8"
               editable={!taskSaving}
+              autoCapitalize="none"
               style={{
-                marginTop: 8,
-                height: 48,
-                borderRadius: 14,
+                marginTop: 7,
+                minHeight: 48,
+                borderRadius: 13,
                 borderWidth: 1,
                 borderColor: COLORS.border,
+                backgroundColor: COLORS.card,
                 paddingHorizontal: 12,
                 color: COLORS.text,
-                backgroundColor: "#fff",
-                opacity: taskSaving ? 0.7 : 1,
               }}
             />
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+            <View
+              style={{
+                marginTop: 18,
+                flexDirection: "row",
+                gap: 10,
+              }}
+            >
               <Pressable
                 onPress={() => setTaskModalOpen(false)}
                 disabled={taskSaving}
                 style={{
                   flex: 1,
-                  height: 46,
-                  borderRadius: 14,
-                  alignItems: "center",
-                  justifyContent: "center",
+                  minHeight: 46,
+                  borderRadius: 13,
                   borderWidth: 1,
                   borderColor: COLORS.border,
-                  backgroundColor: "#fff",
-                  opacity: taskSaving ? 0.6 : 1,
+                  backgroundColor: COLORS.card,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: taskSaving ? 0.55 : 1,
                 }}
               >
-                <Text style={{ fontWeight: "900", color: COLORS.text }}>
-                  Anulează
+                <Text
+                  style={{
+                    color: COLORS.text,
+                    fontWeight: "900",
+                  }}
+                >
+                  Renunță
                 </Text>
               </Pressable>
 
               <Pressable
-                onPress={submitTask}
+                onPress={() => void submitTask()}
                 disabled={taskSaving}
                 style={{
                   flex: 1,
-                  height: 46,
-                  borderRadius: 14,
+                  minHeight: 46,
+                  borderRadius: 13,
+                  backgroundColor: COLORS.primary,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: COLORS.primary,
-                  opacity: taskSaving ? 0.6 : 1,
+                  opacity: taskSaving ? 0.55 : 1,
                 }}
               >
-                <Text style={{ fontWeight: "900", color: "#fff" }}>
-                  {taskSaving ? "Se salvează..." : "Creează"}
+                <Text
+                  style={{
+                    color: "#FFFFFF",
+                    fontWeight: "900",
+                  }}
+                >
+                  {taskSaving ? "Se salvează..." : "Salvează"}
                 </Text>
               </Pressable>
             </View>
